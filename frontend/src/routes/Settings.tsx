@@ -2,12 +2,14 @@
 // regen, upload an archive, list plugins, and set client-side preferences
 // (theme, auto-lock idle timeout, language).
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
+  changePasscode,
   getConfig,
   listPlugins,
   regenThumbnails,
   scanLibrary,
+  setPluginConfig,
   updateConfig,
   uploadArchive,
 } from '../api/endpoints';
@@ -70,11 +72,120 @@ export function Settings() {
         </div>
       </section>
 
+      <SecurityPanel />
       <AdminActions />
       <UploadPanel />
       <ConfigPanel />
       <PluginsPanel />
     </div>
+  );
+}
+
+function SecurityPanel() {
+  const [currentPass, setCurrentPass] = useState('');
+  const [ownerNew, setOwnerNew] = useState('');
+  const [ownerConfirm, setOwnerConfirm] = useState('');
+  const [readerNew, setReaderNew] = useState('');
+  const [readerConfirm, setReaderConfirm] = useState('');
+  const [msg, setMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const submit = useCallback(
+    async (role: 'owner' | 'reader', next: string, confirm: string, current?: string) => {
+      setMsg(null);
+      if (next.length < 4) {
+        setMsg('New passcode must be at least 4 characters.');
+        return;
+      }
+      if (next !== confirm) {
+        setMsg('The two new-passcode fields do not match.');
+        return;
+      }
+      setBusy(true);
+      try {
+        await changePasscode(role, next, current);
+        setMsg(`${role} passcode changed.`);
+        setCurrentPass('');
+        setOwnerNew('');
+        setOwnerConfirm('');
+        setReaderNew('');
+        setReaderConfirm('');
+      } catch (err) {
+        setMsg(err instanceof Error ? err.message : String(err));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [],
+  );
+
+  return (
+    <section className="panel">
+      <h2>Security</h2>
+
+      <h3 className="settings__subhead">Change owner passcode</h3>
+      <form
+        className="settings__form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit('owner', ownerNew, ownerConfirm, currentPass);
+        }}
+      >
+        <input
+          type="password"
+          autoComplete="current-password"
+          placeholder="Current owner passcode"
+          value={currentPass}
+          onChange={(e) => setCurrentPass(e.target.value)}
+        />
+        <input
+          type="password"
+          autoComplete="new-password"
+          placeholder="New owner passcode"
+          value={ownerNew}
+          onChange={(e) => setOwnerNew(e.target.value)}
+        />
+        <input
+          type="password"
+          autoComplete="new-password"
+          placeholder="Confirm new passcode"
+          value={ownerConfirm}
+          onChange={(e) => setOwnerConfirm(e.target.value)}
+        />
+        <button type="submit" className="btn btn--primary" disabled={busy}>
+          {busy ? '…' : 'Update owner passcode'}
+        </button>
+      </form>
+
+      <h3 className="settings__subhead">Change reader passcode (shared, read-only)</h3>
+      <form
+        className="settings__form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit('reader', readerNew, readerConfirm);
+        }}
+      >
+        <input
+          type="password"
+          autoComplete="new-password"
+          placeholder="New reader passcode"
+          value={readerNew}
+          onChange={(e) => setReaderNew(e.target.value)}
+        />
+        <input
+          type="password"
+          autoComplete="new-password"
+          placeholder="Confirm new passcode"
+          value={readerConfirm}
+          onChange={(e) => setReaderConfirm(e.target.value)}
+        />
+        <button type="submit" className="btn" disabled={busy}>
+          {busy ? '…' : 'Update reader passcode'}
+        </button>
+      </form>
+
+      {msg && <div className="downloads__msg">{msg}</div>}
+    </section>
   );
 }
 
@@ -246,10 +357,88 @@ function PluginsPanel() {
                 {p.version && <span className="plugins__ver">v{p.version}</span>}
               </div>
               {p.description && <div className="plugins__desc">{p.description}</div>}
+              {p.login_from && (
+                <div className="plugins__desc">uses login: {p.login_from}</div>
+              )}
+              {p.parameters && p.parameters.length > 0 && (
+                <PluginConfigForm plugin={p} onSaved={reload} />
+              )}
             </li>
           ))}
         </ul>
       )}
     </section>
+  );
+}
+
+function PluginConfigForm({ plugin, onSaved }: { plugin: PluginInfo; onSaved: () => void }) {
+  const params = useMemo(() => plugin.parameters ?? [], [plugin.parameters]);
+  const initial = useCallback(() => {
+    const out: Record<string, string> = {};
+    for (const param of params) {
+      const stored = plugin.config?.[param.name];
+      out[param.name] = stored ?? (param.default != null ? String(param.default) : '');
+    }
+    return out;
+  }, [params, plugin.config]);
+
+  const [values, setValues] = useState<Record<string, string>>(initial);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  // Re-sync when the plugin list reloads (e.g. after a save).
+  useEffect(() => setValues(initial()), [initial]);
+
+  const onSubmit = useCallback(
+    async (e: FormEvent) => {
+      e.preventDefault();
+      setBusy(true);
+      setMsg(null);
+      try {
+        // Unchanged secrets are still the mask; the backend ignores those.
+        await setPluginConfig(plugin.namespace, values);
+        setMsg('Saved.');
+        onSaved();
+      } catch (err) {
+        setMsg(err instanceof Error ? err.message : String(err));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [plugin.namespace, values, onSaved],
+  );
+
+  return (
+    <form className="settings__form plugins__config" onSubmit={onSubmit}>
+      {params.map((param) => {
+        const isSecret = param.secret || param.type === 'password';
+        return (
+          <label key={param.name} className="plugins__field">
+            <span className="plugins__fieldlabel">
+              {param.name}
+              {isSecret && <span className="plugins__secret"> (secret)</span>}
+            </span>
+            <input
+              type={isSecret ? 'password' : 'text'}
+              autoComplete={isSecret ? 'new-password' : 'off'}
+              placeholder={param.description || param.name}
+              value={values[param.name] ?? ''}
+              onChange={(e) =>
+                setValues((v) => ({ ...v, [param.name]: e.target.value }))
+              }
+            />
+            {param.description && (
+              <span className="plugins__hint">{param.description}</span>
+            )}
+          </label>
+        );
+      })}
+      <div className="settings__actions">
+        <button type="submit" className="btn btn--primary" disabled={busy}>
+          {busy ? '…' : 'Save'}
+        </button>
+        {msg && <span className="downloads__msg">{msg}</span>}
+      </div>
+    </form>
   );
 }

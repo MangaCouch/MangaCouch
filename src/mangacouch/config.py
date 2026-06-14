@@ -58,6 +58,9 @@ class AcquisitionConfig:
     rate_limit_concurrency: int = 1
     tag_refresh_hours: int = 24
     user_agent: str = DEFAULT_USER_AGENT
+    # First-run bootstrap for the e(x)hentai login cookies (imported into the encrypted plugin
+    # store on startup). Preferred path is the UI / plugin config — see config.example.toml.
+    ehentai: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -186,6 +189,11 @@ def load_config(base_dir: Path | None = None) -> Config:
             rate_limit_concurrency=int(a.get("rate_limit_concurrency", 1)),
             tag_refresh_hours=int(a.get("tag_refresh_hours", 24)),
             user_agent=a.get("user_agent", DEFAULT_USER_AGENT),
+            ehentai={
+                k: str(v)
+                for k, v in (a.get("ehentai", {}) or {}).items()
+                if k in ("ipb_member_id", "ipb_pass_hash", "igneous") and v
+            },
         ),
         reader=ReaderConfig(
             default_mode=r.get("default_mode", "scroll"),
@@ -277,6 +285,9 @@ def write_default_config(base_dir: Path | None = None, *, overwrite: bool = Fals
             "rate_limit_concurrency": 1,
             "tag_refresh_hours": 24,
             "user_agent": DEFAULT_USER_AGENT,
+            # First-run bootstrap for e(x)hentai login cookies; imported into the encrypted plugin
+            # store on startup. Prefer setting these in the UI (Settings → Plugins). See README.
+            "ehentai": {"ipb_member_id": "", "ipb_pass_hash": "", "igneous": ""},
         },
         "reader": {
             "default_mode": "scroll",

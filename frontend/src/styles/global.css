@@ -1399,3 +1399,40 @@ input[type='range'] {
     max-width: 30vw;
   }
 }
+
+/* Settings → Security: change-passcode forms */
+.settings__subhead {
+  margin: 1.1rem 0 0.5rem;
+  font-size: 0.95rem;
+  opacity: 0.85;
+}
+.settings__form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-width: 360px;
+}
+
+/* Settings → Plugins: per-plugin config forms */
+.plugins__config {
+  margin-top: 0.75rem;
+  max-width: 420px;
+}
+.plugins__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+.plugins__fieldlabel {
+  font-size: 0.8rem;
+  font-weight: 600;
+  opacity: 0.85;
+}
+.plugins__secret {
+  font-weight: 400;
+  opacity: 0.6;
+}
+.plugins__hint {
+  font-size: 0.72rem;
+  opacity: 0.6;
+}

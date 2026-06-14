@@ -13,10 +13,11 @@ from ...auth.security import (
     decode_bearer,
     generate_api_key,
     hash_api_key,
+    hash_passcode,
     verify_passcode,
 )
 from ...db.models import AuthCredential, AuthSession
-from ..deps import current_identity, get_db, require_reader
+from ..deps import current_identity, get_db, require_owner, require_reader
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -51,6 +52,42 @@ def logout(request: Request, _: Identity = Depends(require_reader), db: Session 
         if raw:
             db.execute(delete(AuthSession).where(AuthSession.token_hash == hash_api_key(raw)))
     return {"ok": True}
+
+
+class ChangePasscodeRequest(BaseModel):
+    role: str = "owner"  # which credential to change: "owner" | "reader"
+    new_passcode: str
+    current_passcode: str | None = None  # required when changing the OWNER passcode
+
+
+@router.post("/passcode")
+def change_passcode(
+    body: ChangePasscodeRequest,
+    _: Identity = Depends(require_owner),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Owner-only: change the owner or reader passcode. The long-lived API key is unaffected."""
+    role = body.role.lower()
+    if role not in ("owner", "reader"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "role must be owner|reader")
+    if len(body.new_passcode) < 4:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "passcode must be at least 4 characters")
+
+    owner = db.get(AuthCredential, "owner")
+    # Changing the owner passcode requires confirming the current one (defence in depth).
+    if role == "owner" and not (
+        owner and verify_passcode(owner.passcode_hash, body.current_passcode or "")
+    ):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "current owner passcode is incorrect")
+
+    cred = db.get(AuthCredential, role)
+    if cred is None:
+        cred = AuthCredential(role=role, enabled=True)
+        db.add(cred)
+    cred.passcode_hash = hash_passcode(body.new_passcode)
+    cred.enabled = True
+    # Existing login sessions stay valid; only the passcode used for future logins changed.
+    return {"ok": True, "role": role}
 
 
 @router.get("/me")

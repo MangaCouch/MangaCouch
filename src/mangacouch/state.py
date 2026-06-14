@@ -116,6 +116,7 @@ class AppContext:
         self._started = True
         self.translator.load_safe()
         self.registry.discover(self.config.base_dir / "plugins")
+        self._bootstrap_ehentai_cookies()
         self.download_worker.start()
         if watch:
             self.watcher.start()
@@ -123,6 +124,24 @@ class AppContext:
             threading.Thread(
                 target=self._initial_scan, name="mc-initial-scan", daemon=True
             ).start()
+
+    def _bootstrap_ehentai_cookies(self) -> None:
+        """Import e(x)hentai login cookies from config.toml into the encrypted plugin store (§5.6).
+
+        Only non-empty values are imported; the canonical, encrypted copy then lives in
+        ``plugin_config`` so the plaintext cookies can be removed from ``config.toml``.
+        """
+        cookies = {k: v for k, v in self.config.acquisition.ehentai.items() if v}
+        if not cookies:
+            return
+        try:
+            self.set_plugin_config(
+                "ehentai_login", cookies, secret_keys={"ipb_pass_hash", "igneous"}
+            )
+            log.info("imported %d e-hentai cookie(s) from config into the encrypted store",
+                     len(cookies))
+        except Exception:
+            log.exception("failed to import e-hentai cookies from config")
 
     def _initial_scan(self) -> None:
         try:

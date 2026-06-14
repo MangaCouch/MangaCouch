@@ -145,6 +145,14 @@ export interface BalanceResponse {
   error?: string | null;
 }
 
+export interface PluginParam {
+  name: string;
+  type: string; // string | int | bool | password
+  description?: string;
+  default?: unknown;
+  secret?: boolean;
+}
+
 export interface PluginInfo {
   namespace: string;
   name: string;
@@ -152,6 +160,11 @@ export interface PluginInfo {
   description?: string | null;
   version?: string | null;
   author?: string | null;
+  cooldown?: number;
+  login_from?: string | null;
+  parameters?: PluginParam[];
+  /** Stored config values; secret values arrive masked as "••••••••". */
+  config?: Record<string, string>;
 }
 
 /** GET /api/tags/stats — tag cloud. */

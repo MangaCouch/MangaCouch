@@ -15,6 +15,13 @@ import { t } from '../i18n/strings';
 
 const POLL_MS = 3000;
 
+/** Render a GP cost: unknown → "—", explicitly zero → "free", otherwise "N GP". */
+function gpCost(value?: number | null): string {
+  if (value == null) return '—';
+  if (value === 0) return 'free';
+  return `${value} GP`;
+}
+
 export function Downloads() {
   const [url, setUrl] = useState('');
   const [catid, setCatid] = useState('');
@@ -31,12 +38,12 @@ export function Downloads() {
   const jobs = jobsState.data?.jobs ?? [];
 
   const onCheckBalance = useCallback(async () => {
-    if (!url.trim()) return;
     setChecking(true);
     setBalance(null);
     setBalanceErr(null);
     try {
-      const res = await getBalance(url.trim());
+      // No URL → the server returns just the account GP balance.
+      const res = await getBalance(url.trim() || undefined);
       setBalance(res);
       if (res.error) setBalanceErr(res.error);
     } catch (err) {
@@ -99,7 +106,8 @@ export function Downloads() {
             type="button"
             className="btn"
             onClick={onCheckBalance}
-            disabled={checking || !url.trim()}
+            disabled={checking}
+            title="Check your GP balance (leave the URL blank), or the cost for a specific gallery"
           >
             {checking ? '…' : t('downloads.checkBalance')}
           </button>
@@ -121,11 +129,11 @@ export function Downloads() {
             )}
             <div className="balance__grid">
               <span>{t('downloads.balance')}</span>
-              <strong>{balance.balance ?? '—'} GP</strong>
+              <strong>{balance.balance != null ? `${balance.balance} GP` : '—'}</strong>
               <span>{t('downloads.cost')} (Original)</span>
-              <strong>{balance.original_cost ?? '—'} GP</strong>
+              <strong>{gpCost(balance.original_cost)}</strong>
               <span>{t('downloads.cost')} (Resample)</span>
-              <strong>{balance.resample_cost ?? 'free'}</strong>
+              <strong>{gpCost(balance.resample_cost)}</strong>
             </div>
             {balance.sufficient === false && (
               <div className="balance__warn">⚠ Insufficient GP for Original</div>

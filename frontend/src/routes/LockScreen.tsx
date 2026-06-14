@@ -59,7 +59,6 @@ export function LockScreen() {
           onChange={(e) => setPasscode(e.target.value)}
           autoFocus
           autoComplete="current-password"
-          // eslint-disable-next-line jsx-a11y/no-autofocus
           aria-label={t('auth.passcode')}
         />
         {error && <div className="lock-card__error">{error}</div>}

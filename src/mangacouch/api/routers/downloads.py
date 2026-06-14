@@ -13,6 +13,7 @@ from ...acquisition.ehentai import (
     EHentaiError,
     NotLoggedInError,
     fetch_archiver_page,
+    fetch_funds,
     parse_gallery_url,
 )
 from ...db.models import DownloadJob
@@ -122,17 +123,43 @@ def set_priority(
 
 @router.get("/ehentai/balance")
 def gp_balance(
-    url: str,
+    url: str | None = None,
     _: object = Depends(require_owner),
     ctx: AppContext = Depends(get_context),
 ) -> dict[str, Any]:
-    """The GP balance calculator — parse the live Original/Resample cost and current GP."""
+    """The GP balance calculator.
+
+    With a gallery ``url`` it parses the live Original/Resample cost *and* the current GP. Without a
+    url it returns just the account's current GP + Credits (so you can check your balance any time).
+    """
+    session = ctx.download_worker.login_session(_LOGIN_NAMESPACE)
+
+    # No URL → just the account balance (no per-gallery costs).
+    if not url or not url.strip():
+        try:
+            with ctx.rate_limiter.slot("e-hentai"):
+                gp, credits = fetch_funds(session, "e-hentai")
+        except NotLoggedInError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+        except EHentaiError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
+        return {
+            "gid": None,
+            "token": None,
+            "domain": "e-hentai",
+            "balance": gp,
+            "credits": credits,
+            "original_cost": None,
+            "resample_cost": None,
+            "sufficient": None,
+            "gallery_title": None,
+        }
+
     try:
         ref = parse_gallery_url(url)
     except EHentaiError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
-    session = ctx.download_worker.login_session(_LOGIN_NAMESPACE)
     try:
         with ctx.rate_limiter.slot(ref.domain):
             page = fetch_archiver_page(session, ref)
@@ -141,16 +168,17 @@ def gp_balance(
     except EHentaiError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc)) from exc
 
-    enough = page.current_gp is None or page.original_cost is None or (
-        page.current_gp >= page.original_cost
-    )
+    enough: bool | None = None
+    if page.current_gp is not None and page.original_cost is not None:
+        enough = page.current_gp >= page.original_cost
     return {
         "gid": ref.gid,
         "token": ref.token,
         "domain": ref.domain,
-        "current_gp": page.current_gp,
+        "balance": page.current_gp,
         "credits": page.credits,
         "original_cost": page.original_cost,
         "resample_cost": page.resample_cost,
-        "sufficient_for_original": enough,
+        "sufficient": enough,
+        "gallery_title": None,
     }

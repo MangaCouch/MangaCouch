@@ -25,6 +25,16 @@ export function login(passcode: string) {
   });
 }
 
+export function changePasscode(
+  role: 'owner' | 'reader',
+  newPasscode: string,
+  currentPasscode?: string,
+) {
+  return apiPost<{ ok: boolean; role: string }>('/api/auth/passcode', {
+    json: { role, new_passcode: newPasscode, current_passcode: currentPasscode },
+  });
+}
+
 // ---- Library --------------------------------------------------------------
 
 export interface ArchiveQuery {
@@ -161,9 +171,10 @@ export function setJobPriority(id: string, priority: number) {
   });
 }
 
-export function getBalance(url: string, signal?: AbortSignal) {
+export function getBalance(url?: string, signal?: AbortSignal) {
+  // With no URL the server returns just the account GP balance (no per-gallery cost).
   return apiGet<BalanceResponse>('/api/ehentai/balance', {
-    query: { url },
+    query: url && url.trim() ? { url: url.trim() } : {},
     signal,
   });
 }
@@ -210,10 +221,11 @@ export function listPlugins(signal?: AbortSignal) {
   return apiGet<{ plugins: PluginInfo[] }>('/api/plugins', { signal });
 }
 
-export function setPluginConfig(namespace: string, config: Record<string, unknown>) {
-  return apiPost<void>(
+export function setPluginConfig(namespace: string, values: Record<string, unknown>) {
+  // The backend expects the values wrapped under a `values` key (PluginConfigBody).
+  return apiPost<{ namespace: string; saved: string[] }>(
     `/api/plugins/${encodeURIComponent(namespace)}/config`,
-    { json: config },
+    { json: { values } },
   );
 }
 

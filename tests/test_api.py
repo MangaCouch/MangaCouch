@@ -197,6 +197,106 @@ def test_plugins_listed(env: Env):
     assert {"ehentai_login", "ehentai_download", "ehentai_metadata"} <= namespaces
 
 
+def test_change_passcode(env: Env):
+    h = _bearer(env.owner_key)
+    # Reader passcode can be changed by the owner without the current one.
+    assert env.client.post(
+        "/api/auth/passcode", json={"role": "reader", "new_passcode": "newreaderpw"}, headers=h
+    ).status_code == 200
+    assert env.client.post("/api/auth/login", json={"passcode": "newreaderpw"}).status_code == 200
+
+    # Owner passcode change requires the correct current passcode.
+    assert env.client.post(
+        "/api/auth/passcode",
+        json={"role": "owner", "new_passcode": "newownerpw", "current_passcode": "wrong"},
+        headers=h,
+    ).status_code == 401
+    assert env.client.post(
+        "/api/auth/passcode",
+        json={"role": "owner", "new_passcode": "newownerpw", "current_passcode": "ownerpass"},
+        headers=h,
+    ).status_code == 200
+    assert env.client.post("/api/auth/login", json={"passcode": "newownerpw"}).json()["role"] == "owner"
+
+    # Readers may not change passcodes.
+    assert env.client.post(
+        "/api/auth/passcode",
+        json={"role": "reader", "new_passcode": "nope"},
+        headers=_bearer(env.reader_key),
+    ).status_code == 403
+
+
+def test_ehentai_cookie_bootstrap_is_encrypted(roots: Config):
+    """Cookies provided in config.toml are imported into the encrypted plugin store (§5.6)."""
+    roots.acquisition.ehentai = {
+        "ipb_member_id": "12345",
+        "ipb_pass_hash": "super-secret",
+        "igneous": "abcdef",
+    }
+    ctx = build_context(roots, use_process_pool=False)
+    try:
+        ctx._bootstrap_ehentai_cookies()
+        decrypted = ctx.plugin_config("ehentai_login")
+        assert decrypted["ipb_member_id"] == "12345"
+        assert decrypted["ipb_pass_hash"] == "super-secret"  # decrypts back
+
+        from mangacouch.db.models import PluginConfig
+
+        with session_scope() as session:
+            row = (
+                session.query(PluginConfig)
+                .filter_by(namespace="ehentai_login", key="ipb_pass_hash")
+                .one()
+            )
+            assert row.is_secret is True
+            assert row.value != "super-secret"  # stored as ciphertext, not plaintext
+    finally:
+        ctx.shutdown()
+
+
+def test_gp_balance_without_url(env: Env, monkeypatch):
+    """Check GP works with no URL — returns just the account balance (frontend field names)."""
+    import mangacouch.api.routers.downloads as dl
+
+    monkeypatch.setattr(env.ctx.download_worker, "login_session", lambda ns: object())
+    monkeypatch.setattr(dl, "fetch_funds", lambda session, domain="e-hentai": (1234, 7))
+
+    r = env.client.get("/api/ehentai/balance", headers=_bearer(env.owner_key))
+    assert r.status_code == 200
+    body = r.json()
+    assert body["balance"] == 1234
+    assert body["credits"] == 7
+    assert body["original_cost"] is None
+    assert body["resample_cost"] is None
+    assert body["sufficient"] is None
+
+
+def test_gp_balance_with_url(env: Env, monkeypatch):
+    """With a gallery URL the calculator returns balance + per-archive costs + sufficiency."""
+    import mangacouch.api.routers.downloads as dl
+    from mangacouch.acquisition.ehentai import ArchiverPage
+
+    monkeypatch.setattr(env.ctx.download_worker, "login_session", lambda ns: object())
+    monkeypatch.setattr(
+        dl,
+        "fetch_archiver_page",
+        lambda session, ref: ArchiverPage(
+            current_gp=1000, credits=5, original_cost=200, resample_cost=10
+        ),
+    )
+    r = env.client.get(
+        "/api/ehentai/balance",
+        params={"url": "https://e-hentai.org/g/123/0a1b2c3d4e/"},
+        headers=_bearer(env.owner_key),
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["balance"] == 1000
+    assert body["original_cost"] == 200
+    assert body["resample_cost"] == 10
+    assert body["sufficient"] is True
+
+
 def test_opds_root(env: Env):
     key = base64.b64encode(env.reader_key.encode()).decode()
     r = env.client.get("/api/opds", params={"key": key})

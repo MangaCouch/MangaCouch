@@ -20,6 +20,18 @@ _REDIRECT_RE = re.compile(r"""document\.location\s*=\s*["']([^"']+)["']""", re.I
 _HATH_HREF_RE = re.compile(r'href=["\']([^"\']*?/archive/[^"\']+)["\']', re.IGNORECASE)
 _GP_RE = re.compile(r"([\d,]+)\s*GP", re.IGNORECASE)
 _CREDITS_RE = re.compile(r"([\d,]+)\s*Credits", re.IGNORECASE)
+# The GP Exchange page shows balances as e.g. "Available: 156 kGP" / "Available: 424,447 Credits".
+_AVAIL_GP_RE = re.compile(r"Available:\s*([\d,.]+)\s*([kKmM]?)\s*GP", re.IGNORECASE)
+_AVAIL_CREDITS_RE = re.compile(r"Available:\s*([\d,.]+)\s*([kKmM]?)\s*Credits", re.IGNORECASE)
+_SUFFIX_MULT = {"": 1, "k": 1_000, "m": 1_000_000}
+
+
+def _amount(number: str, suffix: str) -> int | None:
+    try:
+        value = float(number.replace(",", ""))
+    except ValueError:
+        return None
+    return int(value * _SUFFIX_MULT.get(suffix.lower(), 1))
 
 
 class EHentaiError(Exception):
@@ -110,6 +122,24 @@ def parse_archiver_gp(html: str) -> ArchiverPage:
         resample_cost=resample_cost,
         raw_html=html,
     )
+
+
+def fetch_funds(session: httpx.Client, domain: str = "e-hentai") -> tuple[int | None, int | None]:
+    """Current GP + Credits *without* a specific gallery, from the GP Exchange page.
+
+    GP is account-wide (identical on both domains). The exchange page shows both balances as
+    ``Available: <n> [k|M]GP`` and ``Available: <n> Credits``. Returns ``(gp, credits)``; either may
+    be ``None`` if not shown. Raises :class:`NotLoggedInError` when the cookies are missing/invalid.
+    """
+    host = "exhentai.org" if domain == "exhentai" else "e-hentai.org"
+    resp = session.get(f"https://{host}/exchange.php?t=gp")
+    resp.raise_for_status()
+    html = resp.text
+    if "requires you to log on" in html.lower():
+        raise NotLoggedInError("Not logged in — set your e-hentai cookies in the Login plugin.")
+    gp = _amount(*m.groups()) if (m := _AVAIL_GP_RE.search(html)) else None
+    credits = _amount(*m.groups()) if (m := _AVAIL_CREDITS_RE.search(html)) else None
+    return gp, credits
 
 
 def fetch_archiver_page(session: httpx.Client, ref: GalleryRef) -> ArchiverPage:

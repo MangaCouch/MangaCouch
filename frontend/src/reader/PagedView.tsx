@@ -19,7 +19,7 @@ export function PagedView({
     reader;
 
   const fitClass = `pages--fit-${settings.fit}`;
-  const spread = spreads[currentSpread] ?? [];
+  const spread = useMemo(() => spreads[currentSpread] ?? [], [spreads, currentSpread]);
 
   // For RTL manga, the visual order of a two-page spread is reversed.
   const ordered = useMemo(() => {

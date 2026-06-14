@@ -67,10 +67,12 @@ export function Reader() {
     const onKey = (e: KeyboardEvent) => {
       switch (e.key) {
         case 'ArrowRight':
-          settings.direction === 'rtl' ? prev() : next();
+          if (settings.direction === 'rtl') prev();
+          else next();
           break;
         case 'ArrowLeft':
-          settings.direction === 'rtl' ? next() : prev();
+          if (settings.direction === 'rtl') next();
+          else prev();
           break;
         case 'ArrowDown':
         case ' ':
@@ -140,9 +142,11 @@ export function Reader() {
       // Swipe right -> previous in LTR; direction-aware.
       const swipedRight = dx > 0;
       if (settings.direction === 'rtl') {
-        swipedRight ? next() : prev();
+        if (swipedRight) next();
+        else prev();
       } else {
-        swipedRight ? prev() : next();
+        if (swipedRight) prev();
+        else next();
       }
     },
     [settings.mode, settings.direction, next, prev],
