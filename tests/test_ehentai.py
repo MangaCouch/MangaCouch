@@ -29,16 +29,24 @@ def test_parse_gallery_url_invalid():
 
 
 def test_parse_archiver_gp():
+    # Mirrors the real archiver.php layout: the cost appears BEFORE each form's submit button, so
+    # costs must be mapped to options via the form's dltype (org/res), not by proximity to the text.
     html = """
-    <p>You currently have 4,200 GP and 15 Credits.</p>
-    <div><input type="submit" value="Download Original Archive"> It will cost 1,337 GP.</div>
-    <div><input type="submit" value="Download Resample Archive"> It will cost 50 GP.</div>
+    <p>Current Funds: 156,509 GP [?] &nbsp; 424,447 Credits [?]</p>
+    <div>Download Cost: &nbsp; 726 GP &nbsp; Estimated Size: 15.37 MiB
+      <form method="post"><input type="hidden" name="dltype" value="org" />
+      <input type="submit" name="dlcheck" value="Download Original Archive" /></form>
+    </div>
+    <div>Download Cost: &nbsp; 427 GP &nbsp; Estimated Size: 9.04 MiB
+      <form method="post"><input type="hidden" name="dltype" value="res" />
+      <input type="submit" name="dlcheck" value="Download Resample Archive" /></form>
+    </div>
     """
     page = parse_archiver_gp(html)
-    assert page.current_gp == 4200
-    assert page.credits == 15
-    assert page.original_cost == 1337
-    assert page.resample_cost == 50
+    assert page.current_gp == 156509
+    assert page.credits == 424447
+    assert page.original_cost == 726  # the Original cost — NOT the resample (the old bug)
+    assert page.resample_cost == 427
 
 
 def test_redirect_regex():

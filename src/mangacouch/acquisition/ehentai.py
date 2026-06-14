@@ -96,30 +96,31 @@ def _to_int(text: str | None) -> int | None:
         return None
 
 
+_FUNDS_GP_RE = re.compile(r"Current Funds:.*?([\d,]+)\s*GP", re.IGNORECASE | re.DOTALL)
+_FUNDS_CREDITS_RE = re.compile(r"Current Funds:.*?([\d,]+)\s*Credits", re.IGNORECASE | re.DOTALL)
+_DLTYPE_RE = re.compile(r'name=["\']dltype["\']\s+value=["\'](org|res)["\']', re.IGNORECASE)
+_DLCOST_RE = re.compile(r"Download Cost.*?([\d,]+)\s*GP", re.IGNORECASE | re.DOTALL)
+
+
 def parse_archiver_gp(html: str) -> ArchiverPage:
-    """Best-effort parse of the GP cost (Original/Resample) and the account's current balance.
+    """Parse the GP cost (Original/Resample) and the account's current balance.
 
-    Exact pricing is account/policy-dependent (Appendix A), so we read live values and degrade to
-    ``None`` for anything we can't find rather than guessing.
+    The page lists a ``Download Cost: <n> GP`` for each option *before* its submit button, so costs
+    are matched to options by the form's ``dltype`` (``org``/``res``) in document order — not by
+    proximity to the button text. Anything not found degrades to ``None`` rather than guessing.
     """
-    current_gp = _to_int(m.group(1)) if (m := _GP_RE.search(html)) else None
-    credits = _to_int(m.group(1)) if (m := _CREDITS_RE.search(html)) else None
+    m = _FUNDS_GP_RE.search(html) or _GP_RE.search(html)
+    current_gp = _to_int(m.group(1)) if m else None
+    m = _FUNDS_CREDITS_RE.search(html) or _CREDITS_RE.search(html)
+    credits = _to_int(m.group(1)) if m else None
 
-    def cost_after(keyword: str) -> int | None:
-        idx = html.lower().find(keyword.lower())
-        if idx < 0:
-            return None
-        window = html[idx : idx + 400]
-        m = _GP_RE.search(window)
-        return _to_int(m.group(1)) if m else None
-
-    original_cost = cost_after("Download Original Archive") or cost_after("Original Archive")
-    resample_cost = cost_after("Download Resample Archive") or cost_after("Resample Archive")
+    # Each download form has one dltype and one "Download Cost: X GP"; they appear in the same order.
+    costs = dict(zip(_DLTYPE_RE.findall(html), _DLCOST_RE.findall(html), strict=False))
     return ArchiverPage(
         current_gp=current_gp,
         credits=credits,
-        original_cost=original_cost,
-        resample_cost=resample_cost,
+        original_cost=_to_int(costs.get("org")),
+        resample_cost=_to_int(costs.get("res")),
         raw_html=html,
     )
 
@@ -143,14 +144,21 @@ def fetch_funds(session: httpx.Client, domain: str = "e-hentai") -> tuple[int | 
 
 
 def fetch_archiver_page(session: httpx.Client, ref: GalleryRef) -> ArchiverPage:
-    """``GET archiver.php`` — validate the gallery/login and read GP cost + balance."""
-    resp = session.get(ref.archiver_url)
-    resp.raise_for_status()
+    """``GET archiver.php`` — validate the gallery/login and read GP cost + balance.
+
+    The archiver page requires a ``Referer`` of the gallery page; without it e-hentai returns
+    "This gallery is currently unavailable." (HTTP 404).
+    """
+    resp = session.get(ref.archiver_url, headers={"Referer": ref.gallery_url})
     html = resp.text
-    if "Invalid archiver key" in html:
+    low = html.lower()
+    if "invalid archiver key" in low:
         raise EHentaiError("Invalid archiver key (bad gid/token).")
-    if "This page requires you to log on" in html or "requires you to log on" in html:
+    if "requires you to log on" in low:
         raise NotLoggedInError("Not logged in — set your e-hentai cookies in the Login plugin.")
+    if "currently unavailable" in low:
+        raise EHentaiError("Gallery temporarily unavailable (rate-limited — try again shortly).")
+    resp.raise_for_status()
     return parse_archiver_gp(html)
 
 
@@ -160,7 +168,7 @@ def request_archive(session: httpx.Client, ref: GalleryRef, dltype: str = "org")
         form = {"dltype": "res", "dlcheck": "Download Resample Archive"}
     else:
         form = {"dltype": "org", "dlcheck": "Download Original Archive"}
-    resp = session.post(ref.archiver_url, data=form)
+    resp = session.post(ref.archiver_url, data=form, headers={"Referer": ref.archiver_url})
     resp.raise_for_status()
     html = resp.text
     if "Insufficient funds" in html:
