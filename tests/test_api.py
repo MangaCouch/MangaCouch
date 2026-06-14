@@ -1,0 +1,205 @@
+"""End-to-end API tests over the real app (read flow, auth roles, upload, search)."""
+
+from __future__ import annotations
+
+import base64
+from collections.abc import Iterator
+from dataclasses import dataclass
+
+import pytest
+from fastapi.testclient import TestClient
+
+from mangacouch.auth.security import hash_api_key, hash_passcode
+from mangacouch.config import Config
+from mangacouch.core import sidecars
+from mangacouch.db.base import session_scope
+from mangacouch.db.models import AuthCredential
+from mangacouch.state import AppContext, build_context
+
+from .conftest import make_zip
+
+
+def _bearer(raw_key: str) -> dict[str, str]:
+    return {"Authorization": "Bearer " + base64.b64encode(raw_key.encode()).decode()}
+
+
+@dataclass
+class Env:
+    client: TestClient
+    ctx: AppContext
+    owner_key: str
+    reader_key: str
+    archive_id: str
+
+
+@pytest.fixture
+def env(roots: Config, sample_pages) -> Iterator[Env]:
+    from mangacouch.app import create_app
+
+    ctx = build_context(roots, use_process_pool=False)
+    # Provision credentials with known keys.
+    with session_scope() as session:
+        session.add(
+            AuthCredential(
+                role="owner",
+                passcode_hash=hash_passcode("ownerpass"),
+                api_key_hash=hash_api_key("owner-key"),
+                enabled=True,
+            )
+        )
+        session.add(
+            AuthCredential(
+                role="reader",
+                passcode_hash=hash_passcode("readerpass"),
+                api_key_hash=hash_api_key("reader-key"),
+                enabled=True,
+            )
+        )
+
+    # Tag the gallery via a native sidecar so search/tags have something to chew on.
+    path = make_zip(roots.manga_root / "Test Gallery.zip", sample_pages)
+    sidecars.write_mc(
+        path,
+        sidecars.McSidecar(
+            archive_id="", fingerprint=None, format="zip", page_count=0,
+            original_filename="Test Gallery.zip", title="Test Gallery",
+            tags=["artist:tester", "female:lolicon", "language:english"],
+        ),
+    )
+    archive_id = ctx.ingestor.index_file(path)
+    assert archive_id
+
+    app = create_app(context=ctx)
+    with TestClient(app) as client:
+        yield Env(client, ctx, "owner-key", "reader-key", archive_id)
+
+
+def test_health(env: Env):
+    r = env.client.get("/api/health")
+    assert r.status_code == 200
+    assert r.json()["status"] == "ok"
+
+
+def test_auth_required(env: Env):
+    assert env.client.get("/api/archives").status_code == 401
+
+
+def test_login_and_list(env: Env):
+    r = env.client.post("/api/auth/login", json={"passcode": "readerpass"})
+    assert r.status_code == 200
+    token = r.json()
+    assert token["role"] == "reader"
+    # Use the returned session token.
+    r2 = env.client.get("/api/archives", headers=_bearer(token["api_key"]))
+    assert r2.status_code == 200
+    body = r2.json()
+    assert body["total"] == 1
+    assert body["archives"][0]["id"] == env.archive_id
+
+
+def test_detail_pages_and_image(env: Env):
+    h = _bearer(env.reader_key)
+    detail = env.client.get(f"/api/archives/{env.archive_id}", headers=h).json()
+    assert detail["title"] == "Test Gallery"
+    assert any(t["namespace"] == "artist" for t in detail["tags"])
+
+    pages = env.client.get(f"/api/archives/{env.archive_id}/pages", headers=h).json()
+    assert len(pages["pages"]) == 3
+    first = pages["pages"][0]["path"]
+
+    img = env.client.get(
+        f"/api/archives/{env.archive_id}/page", params={"path": first}, headers=h
+    )
+    assert img.status_code == 200
+    assert img.headers["content-type"].startswith("image/")
+    assert len(img.content) > 0
+
+
+def test_media_auth_via_query_key(env: Env):
+    """`<img>` can't set headers, so ?key= must authenticate media routes."""
+    key = base64.b64encode(env.reader_key.encode()).decode()
+    r = env.client.get(f"/api/archives/{env.archive_id}/thumbnail", params={"key": key})
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "image/webp"
+
+
+def test_search_by_namespace(env: Env):
+    h = _bearer(env.reader_key)
+    hit = env.client.get("/api/archives", params={"q": "artist:tester"}, headers=h).json()
+    assert hit["total"] == 1
+    miss = env.client.get("/api/archives", params={"q": "artist:nobody"}, headers=h).json()
+    assert miss["total"] == 0
+
+
+def test_progress_and_read_flag(env: Env):
+    h = _bearer(env.reader_key)
+    env.client.put(f"/api/archives/{env.archive_id}/progress/3", headers=h)
+    detail = env.client.get(f"/api/archives/{env.archive_id}", headers=h).json()
+    assert detail["progress"]["page"] == 3
+    assert detail["read"] is True  # 3/3 > 0.85
+
+
+def test_reader_cannot_write_owner_routes(env: Env):
+    h = _bearer(env.reader_key)
+    assert env.client.put(
+        f"/api/archives/{env.archive_id}/metadata", json={"title": "x"}, headers=h
+    ).status_code == 403
+    assert env.client.get("/api/config", headers=h).status_code == 403
+
+
+def test_owner_metadata_update(env: Env):
+    h = _bearer(env.owner_key)
+    r = env.client.put(
+        f"/api/archives/{env.archive_id}/metadata",
+        json={"title": "Renamed", "rating": 5.0, "tags": ["artist:newguy"]},
+        headers=h,
+    )
+    assert r.status_code == 200
+    assert r.json()["title"] == "Renamed"
+    # The search index reflects the new tag.
+    hit = env.client.get("/api/archives", params={"q": "artist:newguy"}, headers=h).json()
+    assert hit["total"] == 1
+
+
+def test_upload_zip(env: Env, sample_pages, tmp_path):
+    h = _bearer(env.owner_key)
+    payload = make_zip(tmp_path / "uploaded.zip", sample_pages).read_bytes()
+    r = env.client.post(
+        "/api/upload",
+        files={"file": ("uploaded.zip", payload, "application/zip")},
+        headers=h,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["archive_id"]
+
+
+def test_categories_and_favorites(env: Env):
+    h = _bearer(env.owner_key)
+    cat = env.client.post(
+        "/api/categories", json={"name": "Faves", "type": "static"}, headers=h
+    ).json()
+    env.client.put(f"/api/categories/{cat['id']}/{env.archive_id}", headers=h)
+    listed = env.client.get(
+        "/api/archives", params={"category": cat["id"]}, headers=h
+    ).json()
+    assert listed["total"] == 1
+
+    fl = env.client.post("/api/favorites/lists", json={"name": "Best"}, headers=h).json()
+    env.client.put(f"/api/favorites/{fl['id']}/{env.archive_id}", headers=h)
+    lists = env.client.get("/api/favorites/lists", headers=h).json()["lists"]
+    assert env.archive_id in lists[0]["archive_ids"]
+
+
+def test_plugins_listed(env: Env):
+    h = _bearer(env.owner_key)
+    plugins = env.client.get("/api/plugins", headers=h).json()["plugins"]
+    namespaces = {p["namespace"] for p in plugins}
+    assert {"ehentai_login", "ehentai_download", "ehentai_metadata"} <= namespaces
+
+
+def test_opds_root(env: Env):
+    key = base64.b64encode(env.reader_key.encode()).decode()
+    r = env.client.get("/api/opds", params={"key": key})
+    assert r.status_code == 200
+    assert "<feed" in r.text
+    assert env.archive_id in r.text

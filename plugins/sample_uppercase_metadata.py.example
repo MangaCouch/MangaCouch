@@ -1,0 +1,42 @@
+"""A minimal drop-in Metadata plugin.
+
+Rename to ``sample_uppercase_metadata.py`` (drop the ``.example``) to activate it. It adds a single
+``source:sample`` tag and uppercases the title — just enough to show the contract end to end.
+"""
+
+from __future__ import annotations
+
+from mangacouch.plugins import (
+    MetadataContext,
+    MetadataPlugin,
+    MetadataResult,
+    PluginInfo,
+    PluginParam,
+    PluginType,
+)
+
+
+class UppercaseMetadataPlugin(MetadataPlugin):
+    def plugin_info(self) -> PluginInfo:
+        return PluginInfo(
+            namespace="sample_uppercase",
+            name="Sample Uppercase Metadata",
+            type=PluginType.METADATA,
+            description="Demo plugin: uppercases the title and adds a tag.",
+            author="you",
+            parameters=[
+                PluginParam(
+                    name="prefix",
+                    type="string",
+                    description="Text prepended to the title.",
+                    default="",
+                )
+            ],
+        )
+
+    def get_tags(self, ctx: MetadataContext) -> MetadataResult:
+        prefix = ctx.config.get("prefix", "")
+        return MetadataResult(
+            tags=["source:sample"],
+            title=f"{prefix}{ctx.title.upper()}".strip(),
+        )

@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "MangaCouch Downloader",
+  "version": "1.0.0",
+  "description": "Capture an e(x)hentai gallery URL from the active tab and send it to your MangaCouch server to trigger an Archive Download.",
+
+  "permissions": ["activeTab", "storage", "contextMenus"],
+
+  "optional_host_permissions": ["http://*/*", "https://*/*"],
+
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+
+  "action": {
+    "default_title": "Download to MangaCouch",
+    "default_popup": "popup.html"
+  },
+
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "mangacouch-downloader@mangacouch",
+      "strict_min_version": "115.0"
+    }
+  }
+}

@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# uv
+.uv/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.pyright/
+.mypy_cache/
+
+# MangaCouch runtime roots (created at startup; never commit data)
+/database/
+/cache/
+/manga/
+/data/
+config.toml
+*.key
+secrets.key
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+# The built SPA is copied into the package at build time:
+src/mangacouch/web/
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp

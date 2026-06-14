@@ -1,0 +1,22 @@
+# Minimal MangaCouch deployment: one container, SQLite, a single data volume.
+#
+# First run prints owner/reader credentials to the logs (`docker compose logs`). Point the bind
+# mount at where you keep your manga; everything else (database/, cache/) is created under it.
+
+services:
+  mangacouch:
+    image: ghcr.io/mangacouch/mangacouch:latest
+    # build: .            # uncomment to build locally instead of pulling
+    container_name: mangacouch
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # Optional: set fixed passcodes on first run (otherwise random ones are generated + logged).
+      # OWNER_PASSCODE: change-me-owner
+      # READER_PASSCODE: change-me-reader
+      TZ: UTC
+    volumes:
+      - ./data:/data            # holds config.toml + database/ + cache/ + manga/
+      # Or mount an existing library directly:
+      # - /path/to/your/manga:/data/manga

@@ -1,0 +1,106 @@
+[project]
+name = "mangacouch"
+version = "0.1.0"
+description = "Self-hosted manga library + e-hentai archiver. A single-process, SQLite-backed ground-up rewrite of LANraragi."
+readme = "README.md"
+requires-python = ">=3.14"
+license = { text = "MIT" }
+authors = [{ name = "KokomiCat / xiazeyu", email = "i@xiaze.pro" }]
+keywords = ["manga", "comic", "library", "e-hentai", "lanraragi", "opds", "reader"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Web Environment",
+    "Framework :: FastAPI",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Multimedia :: Graphics :: Viewers",
+]
+
+dependencies = [
+    # Web framework / server
+    "fastapi>=0.136.0",
+    "uvicorn[standard]>=0.49.0",
+    "python-multipart>=0.0.32",
+    # Models / validation / settings
+    "pydantic>=2.13.0",
+    "pydantic-settings>=2.14.0",
+    # ORM + migrations
+    "sqlalchemy>=2.0.50",
+    "alembic>=1.18.0",
+    # File watcher
+    "watchfiles>=1.0.0",
+    # HTTP client + proxy (SOCKS5h via socksio)
+    "httpx[socks]>=0.28.1,<1.0",
+    # Images (the image library — no Pillow fallback)
+    "pyvips[binary]>=3.1.1",
+    # PDF rasterise + page count
+    "pypdfium2>=5.9.0",
+    # Bridges pdfium's rendered bitmaps into pyvips and powers the perceptual hash (no Pillow).
+    "numpy>=2.0.0",
+    # Content hash (xxh3)
+    "xxhash>=3.7.0",
+    # Passwords / secrets at rest
+    "argon2-cffi>=25.1.0",
+    "cryptography>=44.0.0",
+    # Page cache
+    "diskcache>=5.6.0",
+    # Natural page sort
+    "natsort>=8.4.0",
+    # TOML writing (reading uses stdlib tomllib)
+    "tomli-w>=1.0.0",
+]
+
+[project.scripts]
+mangacouch = "mangacouch.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/MangaCouch/MangaCouch"
+Repository = "https://github.com/MangaCouch/MangaCouch"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.0",
+    "pyright>=1.1.410",
+    "pytest>=9.1.0",
+    "pytest-asyncio>=0.25.0",
+    "httpx>=0.28.1",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mangacouch"]
+# The built SPA (frontend/dist) is copied into src/mangacouch/web before the wheel is built in CI;
+# hatchling includes it automatically as package data when present.
+artifacts = ["src/mangacouch/web/**"]
+
+[tool.ruff]
+target-version = "py314"
+line-length = 110
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "BLE", "C4", "SIM", "PTH", "RUF"]
+ignore = [
+    "B008",   # FastAPI uses function calls (Depends) in argument defaults
+    "B027",   # ArchiveReader.close is an intentional optional hook, not abstract
+    "RUF001", # ambiguous unicode in strings — intentional (CJK, ×, ≥) in docs/messages
+    "RUF002", # ambiguous unicode in docstrings — intentional
+    "RUF003", # ambiguous unicode in comments — intentional
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]
+
+[tool.pyright]
+include = ["src", "tests"]
+pythonVersion = "3.14"
+typeCheckingMode = "standard"
+reportMissingTypeStubs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-ra"

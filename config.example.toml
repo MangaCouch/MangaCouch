@@ -1,0 +1,58 @@
+# MangaCouch configuration.
+#
+# This file lives next to the executable (or in the database root). Every path is resolved
+# relative to the executable location at startup, so the whole install — app + database/ +
+# cache/ + manga/ — relocates across machines and removable drives without edits.
+#
+# `mangacouch init` generates a real config.toml from these defaults. Copy this file to
+# config.toml to customise before first run.
+
+[paths]
+# The four configurable roots (§3.1). Relative paths are resolved against the executable dir.
+database = "database"   # library.sqlite + the secrets keyfile  — back this up
+cache     = "cache"     # search.sqlite, thumbs.sqlite, page cache — disposable/rebuildable
+manga     = "manga"     # the archives + sidecars — source of truth
+
+[server]
+host = "127.0.0.1"
+port = 8000
+# Allowed CORS origins for the browser extension + a separate frontend dev server.
+cors_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
+
+[acquisition]
+# A single optional proxy applied to ALL acquisition traffic (e-hentai, exhentai, and the H@H
+# download host). Use socks5h:// so DNS resolves at the proxy. Leave empty to disable.
+proxy = ""
+# proxy scope: "all" (default) | "exhentai-only"
+proxy_scope = "all"
+# Default archive type: "org" (Original, costs GP) | "res" (Resample, cheap)
+default_dltype = "org"
+# When GP is short: "block" (fail with a clear message) | "resample" (auto-fall-back to Resample)
+gp_short_behavior = "block"
+# Server-side rate limiter: minimum seconds between archiver/download calls, per-source concurrency.
+rate_limit_interval_seconds = 5.0
+rate_limit_concurrency = 1
+# EhTagTranslation refresh: "startup" + every N hours (the upstream bot regenerates several/day).
+tag_refresh_hours = 24
+user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) MangaCouch/0.1"
+
+[reader]
+default_mode = "scroll"       # "scroll" | "paged"
+default_direction = "rtl"     # "rtl" (manga) | "ltr"
+default_fit = "width"         # "width" | "height" | "container" | "original"
+default_preload = 2           # doubled automatically in double-page mode
+theme = "dark"                # "dark" | "light"
+language = "en"
+
+[thumbnails]
+# "lazy" — covers at ingest, page-grid thumbnails on first open (default).
+# "full" — pre-generate every page thumbnail for the whole library as a low-priority sweep.
+prewarm = "lazy"
+cover_size = 512              # long-edge px for cover thumbnails
+page_size = 320              # long-edge px for page-grid thumbnails
+quality = 80                 # WebP/JPEG quality
+max_cache_mb = 0             # optional LRU cap on thumbs.sqlite (0 = unbounded)
+
+[auth]
+auto_lock_minutes = 15
+# Passcodes/API keys live (hashed) in the database, not here. `mangacouch init` prints them once.

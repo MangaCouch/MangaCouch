@@ -1,0 +1,97 @@
+name: Release
+
+# Every tagged release publishes the canonical artifacts (§7.1): a PyPI package, a multi-arch
+# Docker image to GHCR, and portable PyInstaller --onedir builds for the three verified targets.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write   # PyPI trusted publishing
+
+jobs:
+  build-spa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: npm, cache-dependency-path: frontend/package-lock.json }
+      - working-directory: frontend
+        run: npm ci || npm install
+      - working-directory: frontend
+        run: npm run build
+      - uses: actions/upload-artifact@v4
+        with: { name: spa, path: frontend/dist }
+
+  pypi:
+    needs: build-spa
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - uses: actions/download-artifact@v4
+        with: { name: spa, path: src/mangacouch/web }
+      - name: Build sdist + wheel (SPA baked in)
+        run: uv build
+      - name: Publish to PyPI (trusted publishing)
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+  docker:
+    needs: build-spa
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ghcr.io/mangacouch/mangacouch
+          tags: |
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=raw,value=latest
+      - name: Build + push (linux/amd64, linux/arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          # If any aarch64 wheel is missing, drop linux/arm64 here rather than building from source.
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  portable:
+    needs: build-spa
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest,  target: linux-x86_64 }
+          - { os: macos-14,       target: macos-arm64 }
+          - { os: windows-latest, target: windows-amd64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv python install 3.14
+      - uses: actions/download-artifact@v4
+        with: { name: spa, path: src/mangacouch/web }
+      - name: Install + PyInstaller (--onedir, runs in place)
+        run: |
+          uv sync --no-dev
+          uv pip install pyinstaller
+          uv run pyinstaller --noconfirm packaging/mangacouch.spec
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mangacouch-${{ matrix.target }}
+          path: dist/mangacouch

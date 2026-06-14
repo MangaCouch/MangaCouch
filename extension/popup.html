@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MangaCouch Downloader</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header class="header">
+      <h1 class="title">MangaCouch</h1>
+      <button id="open-options" class="link-btn" type="button" title="Options">
+        Settings
+      </button>
+    </header>
+
+    <!-- Shown when the server URL / API key has not been configured yet. -->
+    <section id="needs-config" class="panel hidden">
+      <p class="muted">
+        Set your server URL and owner API key before downloading.
+      </p>
+      <button id="goto-options" class="primary" type="button">
+        Open Options
+      </button>
+    </section>
+
+    <!-- Main download panel. -->
+    <section id="main" class="panel hidden">
+      <label class="field-label" for="tab-url">Active tab</label>
+      <div id="tab-url" class="tab-url" title=""></div>
+
+      <p id="validity" class="validity" role="status"></p>
+
+      <button id="download" class="primary" type="button" disabled>
+        Download to MangaCouch
+      </button>
+
+      <!-- Job status, revealed after a download is started. -->
+      <section id="job" class="job hidden" aria-live="polite">
+        <div class="job-row">
+          <span class="job-label">Job</span>
+          <span id="job-id" class="job-value mono"></span>
+        </div>
+        <div class="job-row">
+          <span class="job-label">State</span>
+          <span id="job-state" class="badge">queued</span>
+        </div>
+        <div class="job-row">
+          <span class="job-label">Progress</span>
+          <span id="job-progress" class="job-value">—</span>
+        </div>
+        <div class="job-row">
+          <span class="job-label">GP cost</span>
+          <span id="job-gp" class="job-value">—</span>
+        </div>
+        <p id="job-error" class="error hidden"></p>
+      </section>
+    </section>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

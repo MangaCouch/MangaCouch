@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MangaCouch Downloader — Options</title>
+    <style>
+      :root {
+        --bg: #1e1f24;
+        --panel: #2a2c33;
+        --fg: #e8e8ea;
+        --muted: #9a9ca3;
+        --accent: #c2410c;
+        --accent-hover: #e2530f;
+        --border: #3a3c44;
+        --ok: #2e7d32;
+        --err: #c62828;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 32px 16px;
+        font: 14px/1.5 system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        background: var(--bg);
+        color: var(--fg);
+      }
+      .card {
+        max-width: 520px;
+        margin: 0 auto;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 24px;
+      }
+      h1 {
+        margin: 0 0 4px;
+        font-size: 18px;
+      }
+      .sub {
+        margin: 0 0 20px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+      label {
+        display: block;
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: var(--muted);
+        margin: 16px 0 6px;
+      }
+      input[type="text"],
+      input[type="url"],
+      input[type="password"] {
+        width: 100%;
+        padding: 9px 10px;
+        font-size: 14px;
+        color: var(--fg);
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 6px;
+      }
+      input:focus {
+        outline: none;
+        border-color: var(--accent);
+      }
+      .hint {
+        margin: 6px 0 0;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-top: 24px;
+      }
+      button {
+        padding: 9px 16px;
+        font-size: 14px;
+        font-weight: 600;
+        color: #fff;
+        background: var(--accent);
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+      }
+      button:hover {
+        background: var(--accent-hover);
+      }
+      button.secondary {
+        background: transparent;
+        color: var(--muted);
+        border: 1px solid var(--border);
+      }
+      button.secondary:hover {
+        color: var(--fg);
+      }
+      .status {
+        font-size: 13px;
+        min-height: 1.2em;
+      }
+      .status.ok {
+        color: #7bc67e;
+      }
+      .status.err {
+        color: #e89a9a;
+      }
+      .reveal {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 8px;
+        font-size: 12px;
+        color: var(--muted);
+        text-transform: none;
+        letter-spacing: 0;
+      }
+      code {
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 1px 5px;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>MangaCouch Downloader</h1>
+      <p class="sub">
+        Configure where galleries are sent and the owner credential used.
+      </p>
+
+      <label for="server-url">Server URL</label>
+      <input
+        id="server-url"
+        type="url"
+        placeholder="http://localhost:8000"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <p class="hint">
+        Base URL of your MangaCouch server, e.g.
+        <code>http://localhost:8000</code>. No trailing path.
+      </p>
+
+      <label for="api-key">Owner API Key</label>
+      <input
+        id="api-key"
+        type="password"
+        placeholder="paste your owner API key"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <p class="hint">
+        The <strong>raw</strong> owner API key. The extension base64-encodes it
+        for the <code>Authorization: Bearer</code> header automatically — do not
+        encode it yourself.
+      </p>
+      <label class="reveal" for="reveal-key">
+        <input id="reveal-key" type="checkbox" />
+        Show key
+      </label>
+
+      <div class="row">
+        <button id="save" type="button">Save</button>
+        <span id="status" class="status" role="status"></span>
+      </div>
+    </div>
+
+    <script type="module" src="options.js"></script>
+  </body>
+</html>
