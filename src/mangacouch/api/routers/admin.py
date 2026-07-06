@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 from typing import Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -73,9 +73,37 @@ def put_config(
 
 
 def _apply(target: object, updates: dict[str, Any]) -> None:
+    """Apply updates onto a config dataclass, coercing/validating against the current field
+    types — a bad value must 422 here, not brick the next startup via config.toml."""
     for key, value in updates.items():
-        if hasattr(target, key) and not key.startswith("_"):
-            setattr(target, key, value)
+        if not hasattr(target, key) or key.startswith("_"):
+            continue
+        try:
+            setattr(target, key, _coerce(value, getattr(target, key)))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(
+                status.HTTP_422_UNPROCESSABLE_ENTITY, f"invalid config value for {key!r}: {exc}"
+            ) from exc
+
+
+def _coerce(value: Any, current: Any) -> Any:
+    if isinstance(current, bool):
+        if isinstance(value, bool):
+            return value
+        raise ValueError("expected a boolean")
+    if isinstance(current, int):
+        if isinstance(value, bool):
+            raise ValueError("expected an integer")
+        return int(value)
+    if isinstance(current, float):
+        if isinstance(value, bool):
+            raise ValueError("expected a number")
+        return float(value)
+    if isinstance(current, str):
+        if isinstance(value, str):
+            return value
+        raise ValueError("expected a string")
+    return value  # None / untyped: accept as-is
 
 
 @router.post("/library/scan")

@@ -50,9 +50,16 @@ def _wildcard_to_like(value: str) -> str:
             out.append("%")
         elif ch in ("?", "_"):
             out.append("_")
+        elif ch == "\\":
+            out.append("\\\\")
         else:
             out.append(ch)
     return "".join(out)
+
+
+def _like_escape(value: str) -> str:
+    """Escape LIKE metacharacters in a *literal* value (paired with ``ESCAPE '\\'``)."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 class SearchIndex:
@@ -90,6 +97,11 @@ class SearchIndex:
             self._conn.execute("DELETE FROM archive_fts")
             self._conn.commit()
 
+    def count(self) -> int:
+        with self._lock:
+            row = self._conn.execute("SELECT count(*) FROM archive_fts").fetchone()
+        return int(row[0]) if row else 0
+
     def rebuild(self, rows: Iterable[tuple[str, str, list[str]]]) -> int:
         count = 0
         with self._lock:
@@ -111,26 +123,33 @@ class SearchIndex:
             if term.match is MatchType.WILDCARD:
                 pat = _wildcard_to_like(value)
                 if ns:
-                    sql = "SELECT archive_id FROM archive_fts WHERE tags_text LIKE ?"
-                    params: tuple = (f"%{ns}:{pat}%",)
+                    sql = (
+                        "SELECT archive_id FROM archive_fts "
+                        "WHERE tags_text LIKE ? ESCAPE '\\'"
+                    )
+                    params: tuple = (f"%{_like_escape(ns)}:{pat}%",)
                 else:
                     sql = (
                         "SELECT archive_id FROM archive_fts "
-                        "WHERE title LIKE ? OR tags_text LIKE ?"
+                        "WHERE title LIKE ? ESCAPE '\\' OR tags_text LIKE ? ESCAPE '\\'"
                     )
                     params = (f"%{pat}%", f"%{pat}%")
                 return {r[0] for r in self._conn.execute(sql, params)}
 
             if term.match is MatchType.EXACT:
+                # Literal values: escape %/_ so "100%" doesn't turn into a wildcard.
                 if ns:
-                    sql = "SELECT archive_id FROM archive_fts WHERE tags_text LIKE ?"
-                    params = (f"% {ns}:{value} %",)
+                    sql = (
+                        "SELECT archive_id FROM archive_fts "
+                        "WHERE tags_text LIKE ? ESCAPE '\\'"
+                    )
+                    params = (f"% {_like_escape(ns)}:{_like_escape(value)} %",)
                 else:
                     sql = (
                         "SELECT archive_id FROM archive_fts "
-                        "WHERE tags_text LIKE ? OR lower(title)=lower(?)"
+                        "WHERE tags_text LIKE ? ESCAPE '\\' OR lower(title)=lower(?)"
                     )
-                    params = (f"% {value} %", value)
+                    params = (f"% {_like_escape(value)} %", value)
                 return {r[0] for r in self._conn.execute(sql, params)}
 
             # SUBSTRING
@@ -145,9 +164,12 @@ class SearchIndex:
                     pass  # fall through to LIKE on any malformed FTS expression
             # LIKE fallback for 1–2 char queries (trigram needs ≥3 chars).
             if ns:
-                sql = "SELECT archive_id FROM archive_fts WHERE tags_text LIKE ?"
-                params = (f"%{ns}:{value}%",)
+                sql = "SELECT archive_id FROM archive_fts WHERE tags_text LIKE ? ESCAPE '\\'"
+                params = (f"%{_like_escape(ns)}:{_like_escape(value)}%",)
             else:
-                sql = "SELECT archive_id FROM archive_fts WHERE title LIKE ? OR tags_text LIKE ?"
-                params = (f"%{value}%", f"%{value}%")
+                sql = (
+                    "SELECT archive_id FROM archive_fts "
+                    "WHERE title LIKE ? ESCAPE '\\' OR tags_text LIKE ? ESCAPE '\\'"
+                )
+                params = (f"%{_like_escape(value)}%", f"%{_like_escape(value)}%")
             return {r[0] for r in self._conn.execute(sql, params)}

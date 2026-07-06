@@ -100,6 +100,10 @@ def add_member(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "category not found")
     if cat.type != "static":
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "cannot add members to a dynamic category")
+    from ...db.models import Archive
+
+    if db.get(Archive, archive_id) is None:  # FK violation would 500 otherwise
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "archive not found")
     exists = db.get(CategoryArchive, {"category_id": category_id, "archive_id": archive_id})
     if exists is None:
         db.add(CategoryArchive(category_id=category_id, archive_id=archive_id))

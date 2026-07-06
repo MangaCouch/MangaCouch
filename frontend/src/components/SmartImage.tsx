@@ -57,12 +57,14 @@ export function SmartImage({
   const [attempt, setAttempt] = useState(0);
   const retryTimer = useRef<number | undefined>(undefined);
   const imgRef = useRef<HTMLImageElement | null>(null);
+  const forcedOnce = useRef(false);
 
   // Reset when the source changes. An empty src is a deferred ("idle") state —
   // the page is outside the preload window and shows only a skeleton.
   useEffect(() => {
     setStatus(src.length > 0 ? 'loading' : 'idle');
     setAttempt(0);
+    forcedOnce.current = false;
     return () => window.clearTimeout(retryTimer.current);
   }, [src]);
 
@@ -106,9 +108,16 @@ export function SmartImage({
     setStatus('loading');
   }, []);
 
-  // `forceLoad` nudges a stuck/idle image to (re)attempt.
+  // `forceLoad` nudges a stuck/idle image to (re)attempt — once per activation,
+  // so an image that keeps failing doesn't loop retries without backoff.
   useEffect(() => {
-    if (forceLoad && (status === 'idle' || status === 'error')) {
+    if (!forceLoad) {
+      forcedOnce.current = false;
+      return;
+    }
+    if (forcedOnce.current) return;
+    if (status === 'idle' || status === 'error') {
+      forcedOnce.current = true;
       manualRetry();
     }
   }, [forceLoad, status, manualRetry]);
@@ -116,10 +125,10 @@ export function SmartImage({
   return (
     <div className={`smart-image ${className ?? ''}`} style={style} data-status={status}>
       {status !== 'loaded' && (
-        <div className="smart-image__skeleton" aria-hidden={status !== 'loading'}>
+        <div className="smart-image__skeleton" aria-hidden={status === 'idle'}>
           {status === 'loading' && <div className="smart-image__shimmer" />}
           {status === 'error' && (
-            <div className="smart-image__error">
+            <div className="smart-image__error" role="alert">
               <span className="smart-image__error-icon">⚠</span>
               <span className="smart-image__error-text">{t('reader.failed')}</span>
               <button

@@ -61,6 +61,17 @@ def create_download(
 ) -> dict[str, Any]:
     if ctx.registry.find_download_plugin(body.url) is None:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "no download plugin handles this URL")
+    # Dedup against the queue: a double-click must not pay the archiver twice.
+    pending = db.scalar(
+        select(DownloadJob).where(
+            DownloadJob.url == body.url,
+            DownloadJob.state.in_(("queued", "running", "preparing")),
+        )
+    )
+    if pending is not None:
+        data = _serialize_job(pending)
+        data["already_queued"] = True
+        return data
     # Dedup-on-download: if we already have this source, surface it (§5.2).
     from ...db.models import Archive
 

@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from sqlalchemy import Select, and_, exists, func, not_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from ..db.models import Archive, ArchiveTag, CategoryArchive, Progress, Tag
 from .index import SearchIndex
@@ -123,6 +123,12 @@ def search_archives(
 
     stmt = _apply_sort(stmt, sort, sortdir)
     stmt = stmt.limit(per_page).offset((page - 1) * per_page)
+    # Eager-load what serialisation touches — without this, a 50-card page costs
+    # hundreds of lazy-load queries (tags per card, tag per link, progress per card).
+    stmt = stmt.options(
+        selectinload(Archive.tags).selectinload(ArchiveTag.tag),
+        selectinload(Archive.progress),
+    )
     items = list(session.execute(stmt).scalars().unique().all())
     return SearchResult(items=items, total=total, page=page, per_page=per_page)
 

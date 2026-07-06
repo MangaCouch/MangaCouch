@@ -6,12 +6,18 @@ interface lets hashing, thumbnailing, and page serving share one code path acros
 
 from __future__ import annotations
 
+import threading
 import zipfile
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
 from pathlib import Path
 
 from .naturalsort import natural_page_sort
+
+# PDFium is not thread-safe: concurrent open/render/close from the API's worker threads can
+# corrupt memory. One process-wide lock serialises every pdfium call (rendering one PDF page is
+# fast; the zip path is unaffected).
+_PDFIUM_LOCK = threading.RLock()
 
 IMAGE_EXTENSIONS = frozenset(
     {".jpg", ".jpeg", ".jpe", ".png", ".gif", ".webp", ".bmp", ".avif", ".jxl", ".tif", ".tiff"}
@@ -127,8 +133,9 @@ class PdfArchiveReader(ArchiveReader):
         import pypdfium2 as pdfium
 
         self._pdfium = pdfium
-        self._doc = pdfium.PdfDocument(path)
-        self._n = len(self._doc)
+        with _PDFIUM_LOCK:
+            self._doc = pdfium.PdfDocument(path)
+            self._n = len(self._doc)
 
     def list_pages(self) -> list[str]:
         # Synthetic, stable, naturally-sortable page ids.
@@ -141,10 +148,12 @@ class PdfArchiveReader(ArchiveReader):
     def _render(self, index: int, scale: float, fmt: str = "png") -> bytes:
         from . import imaging  # local import keeps pyvips off the hashing-only import path
 
-        page = self._doc[index]
-        # rev_byteorder=True yields RGBA (vs pdfium's native BGRA), matching pyvips' expectations.
-        bitmap = page.render(scale=scale, rev_byteorder=True)  # pyright: ignore[reportArgumentType]
-        buf, width, height, bands = imaging.normalise_bitmap(bitmap.to_numpy())
+        with _PDFIUM_LOCK:
+            page = self._doc[index]
+            # rev_byteorder=True yields RGBA (vs pdfium's native BGRA), matching pyvips.
+            bitmap = page.render(scale=scale, rev_byteorder=True)  # pyright: ignore[reportArgumentType]
+            array = bitmap.to_numpy()
+        buf, width, height, bands = imaging.normalise_bitmap(array)
         return imaging.encode_rgba(buf, width, height, bands, fmt=fmt)
 
     def read_page_bytes(self, page_id: str) -> bytes:
@@ -169,7 +178,8 @@ class PdfArchiveReader(ArchiveReader):
         return iter(())
 
     def close(self) -> None:
-        self._doc.close()
+        with _PDFIUM_LOCK:
+            self._doc.close()
 
 
 def open_archive(path: Path) -> ArchiveReader:

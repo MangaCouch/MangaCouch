@@ -1,13 +1,16 @@
 """FastAPI dependencies: auth resolution (role gating) and per-request DB sessions (§5.6, §6.1).
 
-A caller is identified by ``Authorization: Bearer <base64(apiKey)>`` **or** a ``?key=`` query param
-(media ``<img>`` tags can't set headers). The key may be a long-lived owner/reader API key or a
-passcode-login session token. A dependency maps role → allowed verbs on every route.
+A caller is identified by ``Authorization: Bearer <base64(apiKey)>``. Media routes (page /
+thumbnail / OPDS — ``<img>`` tags and OPDS readers can't set headers) additionally accept a
+``?key=`` query param via the ``*_media`` dependencies; ordinary API routes do **not**, so keys
+don't leak into proxy logs and browser history. The key may be a long-lived owner/reader API key
+or a passcode-login session token (idle-expired server-side).
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy import select
@@ -17,6 +20,11 @@ from ..auth.security import Identity, Role, decode_bearer, hash_api_key
 from ..db.base import get_sessionmaker
 from ..db.models import AuthCredential, AuthSession
 from ..state import AppContext
+
+# Passcode-login session tokens expire after this much inactivity; last_seen is written at most
+# once an hour so a busy reader doesn't turn every GET into a DB write.
+SESSION_IDLE_MAX = timedelta(days=30)
+_LAST_SEEN_WRITE_INTERVAL = timedelta(hours=1)
 
 
 def get_context(request: Request) -> AppContext:
@@ -38,16 +46,17 @@ def get_db() -> Iterator[Session]:
         session.close()
 
 
-def _extract_token(request: Request) -> str | None:
+def _extract_token(request: Request, *, allow_query: bool) -> str | None:
     auth = request.headers.get("Authorization", "")
     if auth.lower().startswith("bearer "):
         return auth[7:].strip()
-    key = request.query_params.get("key")
-    return key.strip() if key else None
+    if allow_query:
+        key = request.query_params.get("key")
+        return key.strip() if key else None
+    return None
 
 
-def current_identity(request: Request, db: Session = Depends(get_db)) -> Identity:
-    token = _extract_token(request)
+def _identity_for_token(token: str | None, db: Session) -> Identity:
     if not token:
         return Identity(None)
     raw = decode_bearer(token)
@@ -65,12 +74,34 @@ def current_identity(request: Request, db: Session = Depends(get_db)) -> Identit
 
     sess = db.scalar(select(AuthSession).where(AuthSession.token_hash == digest))
     if sess is not None:
+        now = datetime.now(UTC)
+        last = sess.last_seen if sess.last_seen.tzinfo else sess.last_seen.replace(tzinfo=UTC)
+        if now - last > SESSION_IDLE_MAX:
+            db.delete(sess)  # idle-expired — a leaked token is not valid forever
+            return Identity(None)
+        if now - last > _LAST_SEEN_WRITE_INTERVAL:
+            sess.last_seen = now
         return Identity(Role(sess.role))
     return Identity(None)
 
 
+def current_identity(request: Request, db: Session = Depends(get_db)) -> Identity:
+    return _identity_for_token(_extract_token(request, allow_query=False), db)
+
+
+def current_identity_media(request: Request, db: Session = Depends(get_db)) -> Identity:
+    """Media/OPDS variant: also accepts ``?key=`` (image tags/readers can't set headers)."""
+    return _identity_for_token(_extract_token(request, allow_query=True), db)
+
+
 def require_reader(identity: Identity = Depends(current_identity)) -> Identity:
     """Any authenticated role (owner or reader)."""
+    if not identity.is_authenticated:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "authentication required")
+    return identity
+
+
+def require_reader_media(identity: Identity = Depends(current_identity_media)) -> Identity:
     if not identity.is_authenticated:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "authentication required")
     return identity

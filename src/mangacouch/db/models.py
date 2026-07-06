@@ -199,6 +199,8 @@ class DownloadJob(Base):
     state: Mapped[str] = mapped_column(String(16), default="queued", index=True)
     priority: Mapped[int] = mapped_column(Integer, default=0, index=True)
     progress: Mapped[float] = mapped_column(Float, default=0.0)
+    # Transient-failure retry count (a real column — parsing it out of `error` broke retries).
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     gp_cost: Mapped[int | None] = mapped_column(Integer)
     gp_balance: Mapped[int | None] = mapped_column(Integer)
     archive_id: Mapped[str | None] = mapped_column(String(32))  # set when ingest completes

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import re
+import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from starlette.concurrency import run_in_threadpool
 
-from ...core.archives import detect_format, is_supported
+from ...core.archives import is_supported
 from ...state import AppContext
 from ..deps import get_context, require_owner
 
@@ -35,12 +37,13 @@ async def upload(
             "unsupported format (zip / pdf / cbz only; zip is encouraged over cbz)",
         )
 
-    dest = ctx.config.manga_root / filename
-    dest = _dedupe(dest)
-    dest.parent.mkdir(parents=True, exist_ok=True)
+    root = ctx.config.manga_root
+    root.mkdir(parents=True, exist_ok=True)
 
+    # Unique temp name: concurrent uploads of the same filename must not share a .part file.
+    # The leading dot + .part suffix keep it invisible to the watcher/scanner.
+    tmp = root / f".upload-{uuid.uuid4().hex}.part"
     written = 0
-    tmp = dest.with_suffix(dest.suffix + ".part")
     try:
         with tmp.open("wb") as fh:
             while chunk := await file.read(1 << 20):
@@ -48,16 +51,28 @@ async def upload(
                 if written > _MAX_BYTES:
                     raise HTTPException(status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, "file too large")
                 fh.write(chunk)
+        if written == 0:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "empty upload")
+
+        # Claim a final name atomically (dedupe + exclusive create beats a check-then-rename race).
+        dest = ctx.config.manga_root / filename
+        while True:
+            dest = _dedupe(dest)
+            try:
+                dest.touch(exist_ok=False)
+                break
+            except FileExistsError:
+                continue
+        tmp.replace(dest)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
     finally:
         await file.close()
-    if written == 0:
-        tmp.unlink(missing_ok=True)
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "empty upload")
-    tmp.replace(dest)
 
     try:
-        detect_format(dest)
-        archive_id = ctx.ingestor.index_file(dest)
+        # Hashing/fingerprinting/thumbnailing a multi-GiB file must not block the event loop.
+        archive_id = await run_in_threadpool(ctx.ingestor.index_file, dest)
     except Exception as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, f"could not parse: {exc}") from exc
     if archive_id is None:

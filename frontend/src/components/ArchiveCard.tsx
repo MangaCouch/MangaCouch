@@ -1,6 +1,8 @@
 // A single library grid card: cover, title, page count, tag chips, and a
-// read/progress indicator.
+// read/progress indicator. Memoized — the infinite-scroll grid re-renders on
+// every page append, and hundreds of cards re-filtering tags adds up.
 
+import { memo } from 'react';
 import { Link } from 'react-router-dom';
 import type { Archive } from '../api/types';
 import { thumbnailUrl } from '../api/endpoints';
@@ -10,7 +12,7 @@ import { t } from '../i18n/strings';
 
 const CHIP_NAMESPACES = ['artist', 'group', 'parody', 'series', 'language'];
 
-export function ArchiveCard({ archive }: { archive: Archive }) {
+export const ArchiveCard = memo(function ArchiveCard({ archive }: { archive: Archive }) {
   const read = isRead(archive.progress, archive.page_count);
   const frac = progressFraction(archive.progress, archive.page_count);
   const chips = archive.tags
@@ -50,4 +52,4 @@ export function ArchiveCard({ archive }: { archive: Archive }) {
       </div>
     </Link>
   );
-}
+});

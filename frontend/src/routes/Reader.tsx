@@ -65,6 +65,14 @@ export function Reader() {
   // Keyboard navigation. Direction-aware arrow keys for paged mode.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Don't fight the modals, browser shortcuts (Cmd/Ctrl+F…), or focused
+      // form controls (e.g. arrow keys on the page slider / settings sliders).
+      if (settingsOpen || bookmarksOpen) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('input, textarea, select')) return;
+      // Space on a focused button would both click it and page-advance.
+      if (e.key === ' ' && target?.closest('button')) return;
       switch (e.key) {
         case 'ArrowRight':
           if (settings.direction === 'rtl') prev();
@@ -127,6 +135,12 @@ export function Reader() {
 
   // Touch swipe (paged mode only; scroll mode uses native scrolling).
   const onTouchStart = useCallback((e: ReactTouchEvent) => {
+    // Dragging the page slider or toolbar buttons is not a page-turn gesture.
+    const target = e.target as HTMLElement | null;
+    if (target?.closest('input, button, .reader-bar, .reader-foot')) {
+      touchStart.current = null;
+      return;
+    }
     const tch = e.touches[0];
     touchStart.current = { x: tch.clientX, y: tch.clientY };
   }, []);
@@ -250,11 +264,14 @@ export function Reader() {
       <div
         className="reader-viewport"
         onClick={(e) => {
-          // Center tap toggles chrome (paged-only; edges handle paging).
+          // Center tap toggles chrome; in paged mode the edge zones handle
+          // paging, so only taps outside them toggle.
+          const target = e.target as HTMLElement;
           if (settings.mode === 'scroll') {
-            const target = e.target as HTMLElement;
             if (target.closest('.scroll__img') || target.classList.contains('scroll'))
               setChromeVisible((v) => !v);
+          } else if (!target.closest('.pages__zone')) {
+            setChromeVisible((v) => !v);
           }
         }}
       >

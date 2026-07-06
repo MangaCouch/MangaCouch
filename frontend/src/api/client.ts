@@ -56,6 +56,17 @@ export function clearCredentials(): void {
   lsRemove(ROLE_STORAGE);
 }
 
+/** Authorization header value for out-of-band clients (e.g. XHR uploads). */
+export function bearerToken(): string | null {
+  return apiKey ? `Bearer ${base64(apiKey)}` : null;
+}
+
+/** Route an out-of-band 401 (e.g. XHR upload) through the standard handling. */
+export function notifyUnauthorized(): void {
+  clearCredentials();
+  onUnauthorized?.();
+}
+
 export class ApiError extends Error {
   status: number;
   body: unknown;

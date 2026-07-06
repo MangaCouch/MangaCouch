@@ -30,7 +30,7 @@ src/mangacouch/
   search/      query.py index.py service.py   # namespace:value parser + FTS5 trigram
   tags/        translation.py           # EhTagTranslation
   acquisition/ client ratelimit ehentai queue   # Archive Download + GP calc + queue worker
-  plugins/     base.py registry.py builtin/     # 4 typed ABCs + EHentai login/download/metadata
+  plugins/     base.py registry.py builtin/     # 4 typed ABCs + EHentai login/download/metadata + nhentai/hitomi metadata
   api/         deps.py serialization.py routers/  # the /api surface
 alembic/  tests/  frontend/  extension/  packaging/  docker/  plugins/
 ```

@@ -137,8 +137,10 @@ export function useReader(
   // Debounced progress persistence (spec §5.7: one server-side progress model).
   const persistProgress = useCallback(
     (page: number) => {
-      if (page === lastSaved.current) return;
+      // Always cancel a pending save first: flipping to page N and back before
+      // the debounce fires must not write N as the resume point.
       window.clearTimeout(progressTimer.current);
+      if (page === lastSaved.current) return;
       progressTimer.current = window.setTimeout(() => {
         lastSaved.current = page;
         // Fire and forget; a failed progress write is non-fatal.

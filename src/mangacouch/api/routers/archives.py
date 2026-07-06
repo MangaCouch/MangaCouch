@@ -25,7 +25,7 @@ from ...core.thumbnails import (
 from ...db.models import Archive, ArchiveTag, History, Progress, Tag
 from ...search import parse_query, search_archives
 from ...state import AppContext
-from ..deps import get_context, get_db, require_owner, require_reader
+from ..deps import get_context, get_db, require_owner, require_reader, require_reader_media
 from ..serialization import related_archives, serialize_archive, serialize_card
 
 router = APIRouter(prefix="/api", tags=["library"])
@@ -146,7 +146,7 @@ def _guess_mime(path: str) -> str:
 def get_page(
     archive_id: str,
     path: str,
-    _: object = Depends(require_reader),
+    _: object = Depends(require_reader_media),
     ctx: AppContext = Depends(get_context),
     db: Session = Depends(get_db),
 ) -> Response:
@@ -177,7 +177,7 @@ def get_page(
 def get_thumbnail(
     archive_id: str,
     page: int | None = None,
-    _: object = Depends(require_reader),
+    _: object = Depends(require_reader_media),
     ctx: AppContext = Depends(get_context),
     db: Session = Depends(get_db),
 ) -> Response:

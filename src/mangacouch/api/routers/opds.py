@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import mimetypes
+from urllib.parse import quote
 from xml.sax.saxutils import escape
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -12,7 +13,7 @@ from sqlalchemy.orm import Session
 from ...core.archives import open_archive
 from ...db.models import Archive
 from ...state import AppContext
-from ..deps import get_context, get_db, require_reader
+from ..deps import get_context, get_db, require_reader_media
 
 router = APIRouter(prefix="/api/opds", tags=["opds"])
 
@@ -34,9 +35,12 @@ def _feed(title: str, entries: str, *, self_url: str, extra_links: str = "") -> 
     )
 
 
-def _archive_entry(arch: Archive) -> str:
-    cover = f"/api/archives/{arch.id}/thumbnail"
-    pse = f"/api/opds/{arch.id}/pse?page={{pageNumber}}"
+def _archive_entry(arch: Archive, key: str | None = None) -> str:
+    # OPDS readers authenticate the catalog with ?key=…, but fetch covers/pages with plain GETs
+    # — carry the caller's key into every generated media URL or they all 401.
+    suffix = f"key={quote(key)}" if key else ""
+    cover = f"/api/archives/{arch.id}/thumbnail" + (f"?{suffix}" if suffix else "")
+    pse = f"/api/opds/{arch.id}/pse?page={{pageNumber}}" + (f"&{suffix}" if suffix else "")
     return (
         "  <entry>\n"
         f"    <title>{escape(arch.title or arch.original_filename)}</title>\n"
@@ -55,14 +59,16 @@ def opds_root(
     request: Request,
     q: str | None = None,
     limit: int = Query(60, ge=1, le=200),
-    _: object = Depends(require_reader),
+    _: object = Depends(require_reader_media),
     db: Session = Depends(get_db),
 ) -> Response:
     stmt = select(Archive).order_by(Archive.added_at.desc()).limit(limit)
     if q:
         like = f"%{q}%"
         stmt = stmt.where(Archive.title.like(like))
-    entries = "".join(_archive_entry(a) for a in db.scalars(stmt).all())
+    entries = "".join(
+        _archive_entry(a, request.query_params.get("key")) for a in db.scalars(stmt).all()
+    )
     search_link = (
         '  <link rel="search" href="/api/opds?q={searchTerms}" type="' + _ATOM + '"/>\n'
     )
@@ -74,13 +80,17 @@ def opds_root(
 def opds_entry(
     archive_id: str,
     request: Request,
-    _: object = Depends(require_reader),
+    _: object = Depends(require_reader_media),
     db: Session = Depends(get_db),
 ) -> Response:
     arch = db.get(Archive, archive_id)
     if arch is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "archive not found")
-    feed = _feed(arch.title or arch.original_filename, _archive_entry(arch), self_url=str(request.url))
+    feed = _feed(
+        arch.title or arch.original_filename,
+        _archive_entry(arch, request.query_params.get("key")),
+        self_url=str(request.url),
+    )
     return Response(content=feed, media_type=_ATOM)
 
 
@@ -88,7 +98,7 @@ def opds_entry(
 def opds_pse(
     archive_id: str,
     page: int = Query(1, ge=1),
-    _: object = Depends(require_reader),
+    _: object = Depends(require_reader_media),
     ctx: AppContext = Depends(get_context),
     db: Session = Depends(get_db),
 ) -> Response:

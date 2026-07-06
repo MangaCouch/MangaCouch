@@ -2,9 +2,87 @@
 
 import {
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
+import { lsGet, lsSet } from '../lib/storage';
+
+/**
+ * Collapsible card section (Settings et al.). Open/closed state persists per
+ * `id` in localStorage so the page remembers how the user left it.
+ */
+export function Collapsible({
+  id,
+  icon,
+  title,
+  subtitle,
+  defaultOpen = false,
+  actions,
+  children,
+}: {
+  id: string;
+  icon?: string;
+  title: string;
+  subtitle?: string;
+  defaultOpen?: boolean;
+  /** Optional right-aligned header content (badges, counts). */
+  actions?: ReactNode;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState<boolean>(() =>
+    lsGet<boolean>(`mc.ui.section.${id}`, defaultOpen),
+  );
+  const toggle = () => {
+    setOpen((v) => {
+      lsSet(`mc.ui.section.${id}`, !v);
+      return !v;
+    });
+  };
+
+  return (
+    <section className={`collapse ${open ? 'collapse--open' : ''}`}>
+      <button
+        type="button"
+        className="collapse__header"
+        aria-expanded={open}
+        onClick={toggle}
+      >
+        {icon && (
+          <span className="collapse__icon" aria-hidden>
+            {icon}
+          </span>
+        )}
+        <span className="collapse__titles">
+          <span className="collapse__title">{title}</span>
+          {subtitle && <span className="collapse__subtitle">{subtitle}</span>}
+        </span>
+        {actions && <span className="collapse__actions">{actions}</span>}
+        <svg
+          className="collapse__chevron"
+          width="16"
+          height="16"
+          viewBox="0 0 16 16"
+          aria-hidden
+        >
+          <path
+            d="M4 6l4 4 4-4"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </button>
+      <div className="collapse__outer">
+        <div className="collapse__inner">
+          <div className="collapse__body">{children}</div>
+        </div>
+      </div>
+    </section>
+  );
+}
 
 export function Spinner({ label }: { label?: string }) {
   return (
@@ -53,10 +131,8 @@ export function StarRating({
   return (
     <div
       className={`stars ${readOnly ? 'stars--readonly' : ''}`}
-      role={readOnly ? undefined : 'slider'}
-      aria-valuenow={value}
-      aria-valuemin={0}
-      aria-valuemax={max}
+      role={readOnly ? 'img' : 'radiogroup'}
+      aria-label={`Rating: ${value} of ${max}`}
     >
       {Array.from({ length: max }, (_, i) => {
         const n = i + 1;
@@ -65,6 +141,8 @@ export function StarRating({
           <button
             key={n}
             type="button"
+            role={readOnly ? undefined : 'radio'}
+            aria-checked={readOnly ? undefined : n === value}
             className={`star ${filled ? 'star--filled' : ''}`}
             style={{ fontSize: size }}
             disabled={readOnly}
@@ -118,22 +196,34 @@ export function Modal({
   children: ReactNode;
   wide?: boolean;
 }) {
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const restoreFocusTo = useRef<HTMLElement | null>(null);
+
   useEffect(() => {
     if (!open) return;
+    // Move focus into the dialog; restore it to the trigger on close.
+    restoreFocusTo.current = document.activeElement as HTMLElement | null;
+    dialogRef.current?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      restoreFocusTo.current?.focus?.();
+    };
   }, [open, onClose]);
 
   if (!open) return null;
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div
+        ref={dialogRef}
         className={`modal ${wide ? 'modal--wide' : ''}`}
         role="dialog"
         aria-modal="true"
+        aria-label={title}
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
       >
         {title && (

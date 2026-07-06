@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import threading
+import time
+
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import delete, select
@@ -31,15 +34,54 @@ class LoginResponse(BaseModel):
     role: str
 
 
+# Brute-force guard: passcodes can be short, so failed logins back off per client IP with an
+# escalating lockout (also caps the CPU spent on argon2 verifies). In-memory is fine — a restart
+# resetting the counters is acceptable.
+_FAIL_LOCK = threading.Lock()
+_FAILURES: dict[str, tuple[int, float]] = {}  # ip -> (consecutive failures, locked_until)
+_FREE_ATTEMPTS = 5
+_BASE_LOCKOUT_S = 30.0
+_MAX_LOCKOUT_S = 900.0
+
+
+def _throttle_check(ip: str) -> None:
+    with _FAIL_LOCK:
+        _count, until = _FAILURES.get(ip, (0, 0.0))
+        if time.monotonic() < until:
+            raise HTTPException(
+                status.HTTP_429_TOO_MANY_REQUESTS,
+                "too many failed attempts — try again later",
+            )
+
+
+def _throttle_failure(ip: str) -> None:
+    with _FAIL_LOCK:
+        count, _until = _FAILURES.get(ip, (0, 0.0))
+        count += 1
+        lock_for = 0.0
+        if count >= _FREE_ATTEMPTS:
+            lock_for = min(_BASE_LOCKOUT_S * 2 ** (count - _FREE_ATTEMPTS), _MAX_LOCKOUT_S)
+        _FAILURES[ip] = (count, time.monotonic() + lock_for)
+
+
+def _throttle_reset(ip: str) -> None:
+    with _FAIL_LOCK:
+        _FAILURES.pop(ip, None)
+
+
 @router.post("/login", response_model=LoginResponse)
-def login(body: LoginRequest, db: Session = Depends(get_db)) -> LoginResponse:
+def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)) -> LoginResponse:
+    ip = request.client.host if request.client else "unknown"
+    _throttle_check(ip)
     # Owner is checked first so a shared owner/reader passcode resolves to the higher role.
     for role in (Role.OWNER, Role.READER):
         cred = db.get(AuthCredential, role.value)
         if cred and cred.enabled and verify_passcode(cred.passcode_hash, body.passcode):
             token = generate_api_key()
             db.add(AuthSession(token_hash=hash_api_key(token), role=role.value))
+            _throttle_reset(ip)
             return LoginResponse(api_key=token, role=role.value)
+    _throttle_failure(ip)
     raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid passcode")
 
 

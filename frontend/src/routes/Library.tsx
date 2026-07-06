@@ -60,10 +60,14 @@ export function Library() {
     [controls],
   );
 
+  // Guards `loadMore` against appending a stale response after the query changed.
+  const activeQueryKey = useRef(queryKey);
+
   // Reset and fetch page 1 when the query changes.
   useEffect(() => {
     let active = true;
     const controller = new AbortController();
+    activeQueryKey.current = queryKey;
     setItems([]);
     setPage(1);
     setHasMore(true);
@@ -108,6 +112,7 @@ export function Library() {
   // Load the next page (append).
   const loadMore = useCallback(async () => {
     if (loading || !hasMore) return;
+    const requestKey = queryKey;
     const next = page + 1;
     setLoading(true);
     try {
@@ -119,6 +124,8 @@ export function Library() {
         newonly: controls.newonly || undefined,
         page: next,
       });
+      // The query changed while this page was in flight — drop the response.
+      if (activeQueryKey.current !== requestKey) return;
       setItems((prev) => {
         const seen = new Set(prev.map((a) => a.id));
         const merged = [...prev, ...res.archives.filter((a) => !seen.has(a.id))];
@@ -131,13 +138,14 @@ export function Library() {
         res.archives.length > 0 && (res.total ? loadedSoFar < res.total : true),
       );
     } catch (err) {
+      if (activeQueryKey.current !== requestKey) return;
       if (!(err instanceof ApiError && err.status === 401)) {
         setError(err instanceof Error ? err : new Error(String(err)));
       }
     } finally {
-      setLoading(false);
+      if (activeQueryKey.current === requestKey) setLoading(false);
     }
-  }, [loading, hasMore, page, controls, items.length, total]);
+  }, [loading, hasMore, page, queryKey, controls, items.length, total]);
 
   // Infinite-scroll sentinel.
   const sentinelRef = useRef<HTMLDivElement | null>(null);

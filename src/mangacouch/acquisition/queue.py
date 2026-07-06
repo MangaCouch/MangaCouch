@@ -8,6 +8,7 @@ drains it by priority; an interval poll honours each job's ``next_run`` for sche
 from __future__ import annotations
 
 import logging
+import shutil
 import threading
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -65,7 +66,12 @@ class DownloadWorker:
         self._stop = threading.Event()
         self._wake = threading.Event()
         self._thread: threading.Thread | None = None
+        # Session cache is shared with API threads (GP calculator, manual plugin runs) — guard
+        # it, and never close a client that may be mid-download: invalidation retires clients
+        # and the worker closes them at the next job boundary.
+        self._session_lock = threading.Lock()
         self._sessions: dict[str, httpx.Client] = {}
+        self._retired: list[httpx.Client] = []
 
     # -- lifecycle ----------------------------------------------------------------------------
 
@@ -84,9 +90,12 @@ class DownloadWorker:
         if self._thread is not None:
             self._thread.join(timeout=10)
             self._thread = None
-        for client in self._sessions.values():
+        with self._session_lock:
+            clients = [*self._sessions.values(), *self._retired]
+            self._sessions.clear()
+            self._retired.clear()
+        for client in clients:
             client.close()
-        self._sessions.clear()
 
     def notify(self) -> None:
         """Wake the worker immediately (e.g. a new job was just enqueued)."""
@@ -104,6 +113,7 @@ class DownloadWorker:
 
     def _run(self) -> None:
         while not self._stop.is_set():
+            self._close_retired()
             job_id = self._claim_next()
             if job_id is None:
                 self._wake.wait(self.poll_interval)
@@ -194,7 +204,14 @@ class DownloadWorker:
             return
 
         self._record_costs(job_id, result.gp_cost, result.gp_balance)
-        archive_id = self._finalise(url, catid, result, session_http, info.login_from)
+        try:
+            archive_id = self._finalise(url, catid, result, session_http, info.login_from)
+        except OSError as exc:
+            # The paid-for archive is still staged — surface a clean error, don't crash the run
+            # loop into a generic "internal error".
+            log.exception("finalise failed for job %s", job_id)
+            self._fail(job_id, f"could not move/ingest the downloaded archive: {exc}")
+            return
         self._complete(job_id, archive_id)
 
     def _finalise(self, url, catid, result, session_http, login_from) -> str | None:
@@ -204,7 +221,11 @@ class DownloadWorker:
         final.parent.mkdir(parents=True, exist_ok=True)
         if final.exists():
             final = self._dedupe_name(final)
-        staged.replace(final)
+        try:
+            staged.replace(final)
+        except OSError:
+            # cache/ and manga/ may live on different filesystems (EXDEV) — copy+delete instead.
+            shutil.move(str(staged), str(final))
 
         meta = result.gallery_meta or {}
         source_url = meta.get("source_url") or url
@@ -239,7 +260,25 @@ class DownloadWorker:
                 ingest={"via": "download"},
             ),
         )
-        return self.ingestor.index_file(final)
+        archive_id = self.ingestor.index_file(final)
+        if archive_id and catid is not None:
+            self._link_category(archive_id, catid)
+        return archive_id
+
+    def _link_category(self, archive_id: str, catid: int) -> None:
+        """Honour the job's "download into category" request once ingest is done."""
+        from ..db.models import Category, CategoryArchive
+
+        with session_scope() as session:
+            cat = session.get(Category, catid)
+            if cat is None:
+                log.warning("download category %s not found — skipping link", catid)
+                return
+            exists = session.query(CategoryArchive).filter_by(
+                category_id=catid, archive_id=archive_id
+            ).one_or_none()
+            if exists is None:
+                session.add(CategoryArchive(category_id=catid, archive_id=archive_id))
 
     def _enrich(self, gallery, source_url, session_http, login_from, path) -> None:
         from ..plugins.base import MetadataPlugin, PluginType
@@ -247,17 +286,21 @@ class DownloadWorker:
         for plugin in self.registry.of_type(PluginType.METADATA):
             if not isinstance(plugin, MetadataPlugin):
                 continue
+            namespace = plugin.plugin_info().namespace
             try:
-                result = plugin.get_tags(
-                    MetadataContext(
-                        archive_id="",
-                        title=gallery.title,
-                        source_url=source_url,
-                        config=self.plugin_config(plugin.plugin_info().namespace),
-                        session=session_http,
-                        file_path=path,
+                # The rate limiter is the enforced side of a plugin's advisory cooldown (§5.3).
+                with self.rate_limiter.slot(namespace):
+                    result = plugin.get_tags(
+                        MetadataContext(
+                            archive_id="",
+                            title=gallery.title,
+                            source_url=source_url,
+                            config=self.plugin_config(namespace),
+                            session=session_http,
+                            file_path=path,
+                            existing_tags=list(gallery.tags or []),
+                        )
                     )
-                )
             except Exception:
                 log.exception("metadata plugin failed")
                 continue
@@ -274,7 +317,8 @@ class DownloadWorker:
     def _login_session(self, login_namespace: str | None) -> httpx.Client:
         if not login_namespace:
             raise PluginError("download plugin declares no login_from")
-        cached = self._sessions.get(login_namespace)
+        with self._session_lock:
+            cached = self._sessions.get(login_namespace)
         if cached is not None:
             return cached
         login = self.registry.login_plugin(login_namespace)
@@ -286,17 +330,28 @@ class DownloadWorker:
             proxy=self.proxy,
         )
         client = login.do_login(ctx)
-        self._sessions[login_namespace] = client
-        return client
+        with self._session_lock:
+            winner = self._sessions.setdefault(login_namespace, client)
+        if winner is not client:  # lost a concurrent build race — discard ours
+            client.close()
+        return winner
 
     def login_session(self, namespace: str | None) -> httpx.Client:
         """Public accessor for the cached, authenticated session (used by the GP calculator)."""
         return self._login_session(namespace)
 
     def invalidate_sessions(self) -> None:
-        for client in self._sessions.values():
+        """Drop cached sessions (e.g. cookies changed). Clients are retired, not closed —
+        the worker may be streaming a download through one; it closes them between jobs."""
+        with self._session_lock:
+            self._retired.extend(self._sessions.values())
+            self._sessions.clear()
+
+    def _close_retired(self) -> None:
+        with self._session_lock:
+            clients, self._retired = self._retired, []
+        for client in clients:
             client.close()
-        self._sessions.clear()
 
     # -- helpers ------------------------------------------------------------------------------
 
@@ -364,22 +419,14 @@ class DownloadWorker:
             job = session.get(DownloadJob, job_id)
             if job is None:
                 return
-            attempts = (job.priority and 0) or 0  # placeholder; track via error count below
-            # Count retries cheaply by stashing them in the error prefix.
-            prev = 0
-            if job.error and job.error.startswith("[retry "):
-                try:
-                    prev = int(job.error[7 : job.error.index("]")])
-                except ValueError:
-                    prev = 0
-            if prev + 1 >= max_attempts:
+            job.attempts = (job.attempts or 0) + 1
+            if job.attempts >= max_attempts:
                 job.state = "failed"
                 job.error = message[:500]
             else:
                 job.state = "queued"
-                job.next_run = datetime.now(UTC) + timedelta(seconds=30 * (prev + 1))
-                job.error = f"[retry {prev + 1}] {message}"[:500]
-        _ = attempts
+                job.next_run = datetime.now(UTC) + timedelta(seconds=30 * job.attempts)
+                job.error = f"[retry {job.attempts}] {message}"[:500]
 
     # -- enqueue API --------------------------------------------------------------------------
 

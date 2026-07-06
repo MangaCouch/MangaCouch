@@ -167,6 +167,15 @@ export interface PluginInfo {
   config?: Record<string, string>;
 }
 
+/** POST /api/plugins/{namespace}/run — run a metadata plugin against an archive. */
+export interface RunPluginResponse {
+  namespace: string;
+  title_applied: boolean;
+  new_title?: string | null;
+  added_tags: string[];
+  archive: Archive;
+}
+
 /** GET /api/tags/stats — tag cloud. */
 export interface TagStat {
   namespace: string;

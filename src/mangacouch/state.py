@@ -59,6 +59,11 @@ class AppContext:
                     try:
                         out[row.key] = self.secret_box.decrypt(row.value)
                     except ValueError:
+                        log.warning(
+                            "could not decrypt plugin secret %s.%s — was secrets.key replaced? "
+                            "Re-enter the value in Settings → Plugins.",
+                            namespace, row.key,
+                        )
                         out[row.key] = ""
                 else:
                     out[row.key] = row.value
@@ -152,22 +157,28 @@ class AppContext:
             log.exception("initial scan failed")
 
     def _rebuild_search_if_empty(self) -> None:
+        """Rebuild the FTS index only when it's actually empty (cache/ was deleted) — a full
+        rebuild on every boot is slow and leaves a search-returns-nothing window."""
         from sqlalchemy import select
 
         from .db.models import Archive, ArchiveTag, Tag
 
+        if self.search.count() > 0:
+            return
+
         with session_scope() as session:
             rows = session.execute(select(Archive.id, Archive.title)).all()
+            # One pass over the link table instead of a query per archive.
+            tag_map: dict[str, list[str]] = {}
+            pairs = session.execute(
+                select(ArchiveTag.archive_id, Tag.namespace, Tag.value).join(
+                    Tag, Tag.id == ArchiveTag.tag_id
+                )
+            ).all()
+            for archive_id, ns, value in pairs:
+                tag_map.setdefault(archive_id, []).append(f"{ns}:{value}" if ns else value)
 
-            def tags_for(archive_id: str) -> list[str]:
-                pairs = session.execute(
-                    select(Tag.namespace, Tag.value)
-                    .join(ArchiveTag, ArchiveTag.tag_id == Tag.id)
-                    .where(ArchiveTag.archive_id == archive_id)
-                ).all()
-                return [f"{ns}:{v}" if ns else v for ns, v in pairs]
-
-            self.search.rebuild((aid, title, tags_for(aid)) for aid, title in rows)
+            self.search.rebuild((aid, title, tag_map.get(aid, [])) for aid, title in rows)
 
     def shutdown(self) -> None:
         self.watcher.stop()
@@ -185,9 +196,12 @@ def build_context(config: Config, *, use_process_pool: bool = True) -> AppContex
     config.ensure_roots()
     init_engine(config.library_db_path)
     Base.metadata.create_all(bind_engine())
+    _ensure_schema_upgrades()
 
     secret_box = SecretBox.from_keyfile(config.secrets_keyfile_path)
-    thumbs = ThumbStore(config.thumbs_db_path)
+    thumbs = ThumbStore(
+        config.thumbs_db_path, max_bytes=config.thumbnails.max_cache_mb * 1024 * 1024
+    )
     search = SearchIndex(config.search_db_path)
     page_cache = diskcache.Cache(str(config.page_cache_dir), size_limit=2 << 30)
 
@@ -247,6 +261,30 @@ def bind_engine():
     from .db.base import get_engine
 
     return get_engine()
+
+
+def _ensure_schema_upgrades() -> None:
+    """Tiny in-place column additions for pre-existing DBs (``create_all`` never ALTERs).
+
+    Mirrors the alembic migrations so the click-to-run flow keeps working for users who never
+    run ``alembic upgrade head``. Keep in sync with ``alembic/versions/``.
+    """
+    from sqlalchemy import inspect, text
+
+    engine = bind_engine()
+    try:
+        cols = {c["name"] for c in inspect(engine).get_columns("download_job")}
+        if "attempts" not in cols:  # 0002_dl_attempts
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        "ALTER TABLE download_job "
+                        "ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0"
+                    )
+                )
+            log.info("schema upgrade: added download_job.attempts")
+    except Exception:
+        log.exception("schema upgrade check failed")
 
 
 def _cpu_fanout() -> int:

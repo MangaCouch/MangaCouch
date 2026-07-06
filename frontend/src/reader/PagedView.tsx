@@ -2,7 +2,7 @@
 // applies the fit mode, honors RTL/LTR ordering, and exposes prev/next tap
 // zones. Wide pages report themselves so a spread collapses to single.
 
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { pageImageUrl } from '../api/endpoints';
 import { SmartImage } from '../components/SmartImage';
 import { isWideImage } from './spreads';
@@ -15,8 +15,46 @@ export function PagedView({
   reader: ReaderState;
   archiveId: string;
 }) {
-  const { pages, settings, spreads, currentSpread, markWide, shouldLoad, prev, next } =
-    reader;
+  const {
+    pages,
+    settings,
+    spreads,
+    currentSpread,
+    current,
+    forceLoadAll,
+    markWide,
+    shouldLoad,
+    prev,
+    next,
+  } = reader;
+
+  // Warm the neighbour pages within the preload window (the spread itself only
+  // renders the current pages, so without this every page turn cold-fetches).
+  const preloaded = useRef(new Map<number, HTMLImageElement>());
+  useEffect(() => {
+    preloaded.current.clear();
+  }, [archiveId]);
+  useEffect(() => {
+    const radius = forceLoadAll
+      ? pages.length
+      : Math.max(1, settings.preload * (settings.doublePage ? 2 : 1));
+    for (let d = 1; d <= radius; d++) {
+      for (const idx of [current + d, current - d]) {
+        const page = pages[idx];
+        if (!page || preloaded.current.has(idx)) continue;
+        const img = new Image();
+        img.src = pageImageUrl(archiveId, page.path);
+        preloaded.current.set(idx, img);
+      }
+    }
+    // Drop references outside the window so decoded bitmaps can be reclaimed
+    // (the HTTP cache still has the bytes for an instant re-fetch).
+    if (!forceLoadAll) {
+      for (const idx of preloaded.current.keys()) {
+        if (Math.abs(idx - current) > radius) preloaded.current.delete(idx);
+      }
+    }
+  }, [current, forceLoadAll, pages, settings.preload, settings.doublePage, archiveId]);
 
   const fitClass = `pages--fit-${settings.fit}`;
   const spread = useMemo(() => spreads[currentSpread] ?? [], [spreads, currentSpread]);

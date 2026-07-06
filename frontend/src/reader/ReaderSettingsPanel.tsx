@@ -1,6 +1,6 @@
-// Reader settings panel: mode, direction, double-page, fit, preload, autoplay,
-// theme. Changes persist via useReader.updateSettings (which saves to
-// localStorage as the new defaults).
+// Reader settings panel, grouped into Layout / Display / Playback sections.
+// Changes persist via useReader.updateSettings (which saves to localStorage
+// as the new defaults).
 
 import type { ReactNode } from 'react';
 import { useTheme } from '../hooks/useTheme';
@@ -16,87 +16,104 @@ export function ReaderSettingsPanel({ reader }: { reader: ReaderState }) {
 
   return (
     <div className="reader-settings">
-      <Field label={t('reader.mode')}>
-        <Segmented
-          value={settings.mode}
-          options={[
-            ['paged', t('reader.mode.paged')],
-            ['scroll', t('reader.mode.scroll')],
-          ]}
-          onChange={(v) => updateSettings({ mode: v as 'paged' | 'scroll' })}
-        />
-      </Field>
+      <Group title={t('reader.group.layout')}>
+        <Field label={t('reader.mode')}>
+          <Segmented
+            value={settings.mode}
+            options={[
+              ['paged', t('reader.mode.paged')],
+              ['scroll', t('reader.mode.scroll')],
+            ]}
+            onChange={(v) => updateSettings({ mode: v as 'paged' | 'scroll' })}
+          />
+        </Field>
 
-      {settings.mode === 'paged' && (
-        <>
-          <Field label={t('reader.direction')}>
-            <Segmented
-              value={settings.direction}
-              options={[
-                ['ltr', 'LTR'],
-                ['rtl', 'RTL'],
-              ]}
-              onChange={(v) => updateSettings({ direction: v as 'ltr' | 'rtl' })}
-            />
-          </Field>
-
-          <Field label={t('reader.double')}>
-            <label className="switch">
-              <input
-                type="checkbox"
-                checked={settings.doublePage}
-                onChange={(e) => updateSettings({ doublePage: e.target.checked })}
+        {settings.mode === 'paged' && (
+          <>
+            <Field label={t('reader.direction')}>
+              <Segmented
+                value={settings.direction}
+                options={[
+                  ['ltr', 'LTR'],
+                  ['rtl', 'RTL'],
+                ]}
+                onChange={(v) => updateSettings({ direction: v as 'ltr' | 'rtl' })}
               />
-              <span className="switch__track" />
-            </label>
-          </Field>
-        </>
-      )}
+            </Field>
 
-      <Field label={t('reader.fit')}>
-        <select
-          className="select"
-          value={settings.fit}
-          onChange={(e) => updateSettings({ fit: e.target.value as FitMode })}
-        >
-          {FITS.map((f) => (
-            <option key={f} value={f}>
-              {t(`reader.fit.${f}`)}
-            </option>
-          ))}
-        </select>
-      </Field>
+            <Field label={t('reader.double')}>
+              <label className="switch">
+                <input
+                  type="checkbox"
+                  checked={settings.doublePage}
+                  onChange={(e) => updateSettings({ doublePage: e.target.checked })}
+                />
+                <span className="switch__track" />
+              </label>
+            </Field>
+          </>
+        )}
+      </Group>
 
-      <Field label={t('reader.preload')}>
-        <input
-          type="range"
-          min={0}
-          max={8}
-          value={settings.preload}
-          onChange={(e) => updateSettings({ preload: Number(e.target.value) })}
-        />
-        <span className="reader-settings__value">{settings.preload}</span>
-      </Field>
+      <Group title={t('reader.group.display')}>
+        <Field label={t('reader.fit')}>
+          <select
+            className="select"
+            value={settings.fit}
+            onChange={(e) => updateSettings({ fit: e.target.value as FitMode })}
+          >
+            {FITS.map((f) => (
+              <option key={f} value={f}>
+                {t(`reader.fit.${f}`)}
+              </option>
+            ))}
+          </select>
+        </Field>
 
-      <Field label={t('reader.autoplay')}>
-        <input
-          type="range"
-          min={0}
-          max={30}
-          value={settings.autoplaySeconds}
-          onChange={(e) => updateSettings({ autoplaySeconds: Number(e.target.value) })}
-        />
-        <span className="reader-settings__value">
-          {settings.autoplaySeconds === 0 ? 'off' : `${settings.autoplaySeconds}s`}
-        </span>
-      </Field>
+        <Field label={t('reader.theme')}>
+          <button type="button" className="btn btn--small" onClick={toggle}>
+            {theme === 'dark' ? '☀ Light' : '☾ Dark'}
+          </button>
+        </Field>
+      </Group>
 
-      <Field label={t('reader.theme')}>
-        <button type="button" className="btn btn--small" onClick={toggle}>
-          {theme === 'dark' ? '☀ Light' : '☾ Dark'}
-        </button>
-      </Field>
+      <Group title={t('reader.group.playback')}>
+        <Field label={t('reader.preload')}>
+          <input
+            type="range"
+            min={0}
+            max={8}
+            value={settings.preload}
+            aria-label={t('reader.preload')}
+            onChange={(e) => updateSettings({ preload: Number(e.target.value) })}
+          />
+          <span className="reader-settings__value">{settings.preload}</span>
+        </Field>
+
+        <Field label={t('reader.autoplay')}>
+          <input
+            type="range"
+            min={0}
+            max={30}
+            value={settings.autoplaySeconds}
+            aria-label={t('reader.autoplay')}
+            onChange={(e) => updateSettings({ autoplaySeconds: Number(e.target.value) })}
+          />
+          <span className="reader-settings__value">
+            {settings.autoplaySeconds === 0 ? 'off' : `${settings.autoplaySeconds}s`}
+          </span>
+        </Field>
+      </Group>
     </div>
+  );
+}
+
+function Group({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="reader-settings__group">
+      <h3 className="reader-settings__group-title">{title}</h3>
+      {children}
+    </section>
   );
 }
 

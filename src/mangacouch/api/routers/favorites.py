@@ -70,6 +70,10 @@ def add_favorite(
 ) -> dict:
     if db.get(FavoriteList, list_id) is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "list not found")
+    from ...db.models import Archive
+
+    if db.get(Archive, archive_id) is None:  # FK violation would 500 otherwise
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "archive not found")
     if db.get(Favorite, {"list_id": list_id, "archive_id": archive_id}) is None:
         db.add(Favorite(list_id=list_id, archive_id=archive_id))
     return {"list_id": list_id, "archive_id": archive_id, "favorited": True}

@@ -23,6 +23,8 @@ _BUILTIN_MODULES = (
     "mangacouch.plugins.builtin.ehentai_login",
     "mangacouch.plugins.builtin.ehentai_download",
     "mangacouch.plugins.builtin.ehentai_metadata",
+    "mangacouch.plugins.builtin.nhentai_metadata",
+    "mangacouch.plugins.builtin.hitomi_metadata",
 )
 
 

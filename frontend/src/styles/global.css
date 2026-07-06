@@ -77,11 +77,52 @@ a {
 
 h1 {
   font-size: 1.5rem;
+  letter-spacing: -0.01em;
   margin: 0 0 1rem;
 }
 h2 {
   font-size: 1.15rem;
+  letter-spacing: -0.005em;
   margin: 0 0 0.75rem;
+}
+
+/* Visible keyboard focus everywhere, without flashing on mouse clicks. */
+:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* Themed scrollbars (WebKit + Firefox). */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Page header (Settings, Downloads, …). */
+.page-head {
+  margin-bottom: 1.25rem;
+}
+.page-head h1 {
+  margin-bottom: 0.15rem;
+}
+.page-head__sub {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.9rem;
 }
 
 /* ---- Buttons & inputs ---------------------------------------------------- */
@@ -819,11 +860,13 @@ input[type='range'] {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(3px);
   display: grid;
   place-items: center;
   z-index: 100;
   padding: 1rem;
+  animation: overlay-in 0.15s ease;
 }
 .modal {
   width: min(440px, 100%);
@@ -833,6 +876,29 @@ input[type='range'] {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
+  outline: none;
+  animation: modal-in 0.18s ease;
+}
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .modal-overlay,
+  .modal,
+  .collapse__outer,
+  .collapse__chevron,
+  .card {
+    animation: none;
+    transition: none;
+  }
 }
 .modal--wide {
   width: min(720px, 100%);
@@ -860,6 +926,157 @@ input[type='range'] {
   border-radius: var(--radius);
   padding: 1rem 1.1rem;
   margin-bottom: 1.25rem;
+}
+
+/* ---- Collapsible sections ------------------------------------------------ */
+
+.collapse {
+  background: var(--bg-elev);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 0.85rem;
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+.collapse--open {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border));
+}
+.collapse__header {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.12s;
+}
+.collapse__header:hover {
+  background: var(--bg-elev-2);
+}
+.collapse__icon {
+  font-size: 1.15rem;
+  width: 1.6rem;
+  text-align: center;
+  flex: 0 0 auto;
+}
+.collapse__titles {
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+  min-width: 0;
+  flex: 1;
+}
+.collapse__title {
+  font-weight: 600;
+  font-size: 0.98rem;
+}
+.collapse__subtitle {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.collapse__actions {
+  flex: 0 0 auto;
+}
+.collapse__chevron {
+  flex: 0 0 auto;
+  color: var(--text-dim);
+  transition: transform 0.2s ease;
+}
+.collapse--open .collapse__chevron {
+  transform: rotate(180deg);
+}
+/* Animated open/close via the 0fr→1fr grid trick (no fixed max-height). */
+.collapse__outer {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.22s ease;
+}
+.collapse--open .collapse__outer {
+  grid-template-rows: 1fr;
+}
+.collapse__inner {
+  min-height: 0;
+  overflow: hidden;
+}
+.collapse__body {
+  padding: 0.35rem 1rem 1.1rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.9rem;
+}
+
+/* Settings layout helpers */
+.settings__columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.25rem;
+}
+.settings__group + .settings__group {
+  margin-top: 1.1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+}
+.settings__group .settings__subhead {
+  margin-top: 0;
+}
+.settings__msg {
+  margin-top: 0.6rem;
+  color: var(--text-muted);
+  font-size: 0.88rem;
+}
+.settings__hint {
+  margin: 0 0 0.75rem;
+  color: var(--warn);
+  font-size: 0.85rem;
+}
+
+/* Fetch-metadata modal (Detail page) */
+.fetch-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+.fetch-meta__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.fetch-meta__field > span:first-child {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.fetch-meta__hint {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+.fetch-meta__check {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.fetch-meta__actions {
+  display: flex;
+  gap: 0.5rem;
+}
+.fetch-meta__msg {
+  font-size: 0.88rem;
+  color: var(--success);
+}
+.fetch-meta__msg--error {
+  color: var(--danger);
+}
+.detail__error {
+  color: var(--danger);
+  font-size: 0.85rem;
 }
 .field-row {
   display: flex;
@@ -1278,7 +1495,24 @@ input[type='range'] {
 .reader-settings {
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
+  gap: 1.1rem;
+}
+.reader-settings__group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+.reader-settings__group + .reader-settings__group {
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--border);
+}
+.reader-settings__group-title {
+  margin: 0;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
 }
 .reader-settings__field {
   display: flex;
@@ -1416,12 +1650,26 @@ input[type='range'] {
 /* Settings → Plugins: per-plugin config forms */
 .plugins__config {
   margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px dashed var(--border);
   max-width: 420px;
+}
+.plugins__configure {
+  margin-left: auto;
 }
 .plugins__field {
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
+}
+.plugins__field--bool {
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+.plugins__field--bool .plugins__hint {
+  flex-basis: 100%;
 }
 .plugins__fieldlabel {
   font-size: 0.8rem;

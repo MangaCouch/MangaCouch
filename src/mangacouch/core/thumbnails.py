@@ -43,9 +43,13 @@ CREATE INDEX IF NOT EXISTS ix_thumb_lru ON thumb (variant, accessed_at);
 class ThumbStore:
     """Thread-safe blob store over ``thumbs.sqlite``."""
 
-    def __init__(self, path: Path) -> None:
+    _CAP_CHECK_EVERY = 64  # puts between LRU-cap sweeps (a sweep scans the table)
+
+    def __init__(self, path: Path, *, max_bytes: int = 0) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
+        self._max_bytes = max_bytes
+        self._puts_since_check = 0
         self._conn = sqlite3.connect(path, check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=TRUNCATE")
         self._conn.execute("PRAGMA synchronous=NORMAL")
@@ -88,6 +92,12 @@ class ThumbStore:
                 (archive_id, page, variant, mime, data, len(data), time.time()),
             )
             self._conn.commit()
+        # Honour max_cache_mb: sweep the LRU cap every few puts (not on each one).
+        if self._max_bytes > 0:
+            self._puts_since_check += 1
+            if self._puts_since_check >= self._CAP_CHECK_EVERY:
+                self._puts_since_check = 0
+                self.enforce_cap(self._max_bytes)
 
     def delete_archive(self, archive_id: str) -> None:
         with self._lock:

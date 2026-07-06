@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from ..db.models import Archive, ArchiveTag, Favorite
 from ..tags.translation import TagTranslator
@@ -107,6 +107,10 @@ def related_archives(db: Session, arch: Archive, translator: TagTranslator, limi
             .group_by(Archive.id)
             .order_by(func.count().desc())
             .limit(limit)
+            .options(
+                selectinload(Archive.tags).selectinload(ArchiveTag.tag),
+                selectinload(Archive.progress),
+            )
         ).scalars().unique().all()
         return [serialize_card(a, translator) for a in rows]
 

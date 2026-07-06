@@ -1,7 +1,15 @@
 // High-level, typed wrappers around each REST endpoint in spec §6.1.
 // Components and hooks call these, never `fetch` directly.
 
-import { apiDelete, apiGet, apiPost, apiPut, mediaUrl } from './client';
+import {
+  apiDelete,
+  apiGet,
+  apiPost,
+  apiPut,
+  bearerToken,
+  mediaUrl,
+  notifyUnauthorized,
+} from './client';
 import type {
   AppConfig,
   Archive,
@@ -13,6 +21,7 @@ import type {
   LoginResponse,
   PagesResponse,
   PluginInfo,
+  RunPluginResponse,
   TagStat,
 } from './types';
 
@@ -188,14 +197,9 @@ export function uploadArchive(file: File, onProgress?: (frac: number) => void) {
     form.append('file', file, file.name);
     const xhr = new XMLHttpRequest();
     xhr.open('POST', '/api/upload');
-    // Auth header — reuse the same base64 scheme as the client module.
-    const key = localStorage.getItem('mc.apiKey');
-    if (key) {
-      const bytes = new TextEncoder().encode(key);
-      let bin = '';
-      for (const b of bytes) bin += String.fromCharCode(b);
-      xhr.setRequestHeader('Authorization', `Bearer ${btoa(bin)}`);
-    }
+    // Auth comes from the shared client module (same key store + encoding).
+    const token = bearerToken();
+    if (token) xhr.setRequestHeader('Authorization', token);
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total);
     };
@@ -206,6 +210,10 @@ export function uploadArchive(file: File, onProgress?: (frac: number) => void) {
         } catch {
           resolve({});
         }
+      } else if (xhr.status === 401) {
+        // Bounce to the lock screen like every other 401.
+        notifyUnauthorized();
+        reject(new Error('Unauthorized'));
       } else {
         reject(new Error(`Upload failed (${xhr.status})`));
       }
@@ -227,6 +235,26 @@ export function setPluginConfig(namespace: string, values: Record<string, unknow
     `/api/plugins/${encodeURIComponent(namespace)}/config`,
     { json: { values } },
   );
+}
+
+/** Run a metadata plugin against an archive (rescue flow for dead source galleries). */
+export function runMetadataPlugin(
+  namespace: string,
+  options: {
+    archiveId: string;
+    url?: string;
+    mode?: 'merge' | 'replace';
+    setTitle?: boolean;
+  },
+) {
+  return apiPost<RunPluginResponse>(`/api/plugins/${encodeURIComponent(namespace)}/run`, {
+    json: {
+      archive_id: options.archiveId,
+      url: options.url || undefined,
+      mode: options.mode ?? 'merge',
+      set_title: options.setTitle,
+    },
+  });
 }
 
 // ---- Admin ----------------------------------------------------------------

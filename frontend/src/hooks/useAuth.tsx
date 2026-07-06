@@ -71,16 +71,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUnlocked(true);
   }, []);
 
-  // Auto-lock on idle. Re-armed on each user-activity event.
+  // Auto-lock on idle. Re-armed on each user-activity event. The minutes value
+  // is re-read on every re-arm so a change in Settings applies immediately —
+  // not only after the next unlock.
   useEffect(() => {
     if (!unlocked) return;
-    const minutes = lsGet<number>(AUTOLOCK_KEY, 0);
-    if (!minutes || minutes <= 0) return;
-
-    const ms = minutes * 60 * 1000;
     const arm = () => {
       window.clearTimeout(idleTimer.current);
-      idleTimer.current = window.setTimeout(lock, ms);
+      const minutes = lsGet<number>(AUTOLOCK_KEY, 0);
+      if (!minutes || minutes <= 0) return;
+      idleTimer.current = window.setTimeout(lock, minutes * 60 * 1000);
     };
     arm();
     for (const ev of ACTIVITY_EVENTS) {

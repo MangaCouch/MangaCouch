@@ -124,6 +124,7 @@ class MetadataContext:
     config: dict[str, Any]
     session: httpx.Client | None = None
     file_path: Path | None = None
+    existing_tags: list[str] = field(default_factory=list)  # current "namespace:value" tags
 
 
 @dataclass(slots=True)

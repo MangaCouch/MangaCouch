@@ -12,11 +12,13 @@ import {
   getArchive,
   listArchives,
   listFavoriteLists,
+  listPlugins,
   removeFavorite,
+  runMetadataPlugin,
   setRating,
   thumbnailUrl,
 } from '../api/endpoints';
-import type { Archive, FavoriteList } from '../api/types';
+import type { Archive, FavoriteList, PluginInfo } from '../api/types';
 import { useAsync } from '../hooks/useApi';
 import { useAuth } from '../hooks/useAuth';
 import { SmartImage } from '../components/SmartImage';
@@ -69,6 +71,7 @@ function DetailContent({
 }) {
   const [rating, setRatingLocal] = useState<number>(archive.rating ?? 0);
   const [savingRating, setSavingRating] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const read = isRead(archive.progress, archive.page_count);
   const frac = progressFraction(archive.progress, archive.page_count);
   const continuePage = archive.progress && !read ? archive.progress : 0;
@@ -82,20 +85,29 @@ function DetailContent({
       if (!isOwner) return;
       setRatingLocal(value);
       setSavingRating(true);
+      setActionError(null);
       try {
         await setRating(archive.id, value);
         onChanged();
+      } catch (err) {
+        // Roll back the optimistic value so the UI reflects the server state.
+        setRatingLocal(archive.rating ?? 0);
+        setActionError(err instanceof Error ? err.message : String(err));
       } finally {
         setSavingRating(false);
       }
     },
-    [archive.id, isOwner, onChanged],
+    [archive.id, archive.rating, isOwner, onChanged],
   );
 
   const onDelete = useCallback(async () => {
     if (!window.confirm(t('detail.confirmDelete'))) return;
-    await deleteArchive(archive.id);
-    onDeleted();
+    try {
+      await deleteArchive(archive.id);
+      onDeleted();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    }
   }, [archive.id, onDeleted]);
 
   return (
@@ -177,11 +189,16 @@ function DetailContent({
               </a>
             )}
             {isOwner && (
+              <FetchMetadataButton archive={archive} onChanged={onChanged} />
+            )}
+            {isOwner && (
               <button type="button" className="btn btn--danger" onClick={onDelete}>
                 {t('detail.delete')}
               </button>
             )}
           </div>
+
+          {actionError && <div className="detail__error">{actionError}</div>}
 
           <FavoritePicker archiveId={archive.id} isOwner={isOwner} />
         </div>
@@ -329,6 +346,150 @@ function RelatedRow({ title, items }: { title: string; items: Archive[] }) {
   );
 }
 
+/**
+ * Owner action: fetch title/tags from a Metadata plugin (nhentai / hitomi /
+ * e-hentai) — the rescue flow for archives whose source gallery is gone.
+ */
+function FetchMetadataButton({
+  archive,
+  onChanged,
+}: {
+  archive: Archive;
+  onChanged: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [namespace, setNamespace] = useState('');
+  const [url, setUrl] = useState('');
+  const [mode, setMode] = useState<'merge' | 'replace'>('merge');
+  const [setTitle, setSetTitle] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [msgKind, setMsgKind] = useState<'ok' | 'error'>('ok');
+
+  const { data } = useAsync<{ plugins: PluginInfo[] }>(
+    async (signal) => (open ? listPlugins(signal) : { plugins: [] }),
+    [open],
+  );
+  const metaPlugins = useMemo(
+    () => (data?.plugins ?? []).filter((p) => p.type === 'metadata'),
+    [data?.plugins],
+  );
+
+  // Default to the first metadata plugin once the list arrives.
+  const selected = namespace || metaPlugins[0]?.namespace || '';
+
+  const run = useCallback(async () => {
+    if (!selected) return;
+    setBusy(true);
+    setMsg(null);
+    try {
+      const res = await runMetadataPlugin(selected, {
+        archiveId: archive.id,
+        url: url.trim() || undefined,
+        mode,
+        setTitle,
+      });
+      const parts: string[] = [];
+      parts.push(
+        res.added_tags.length > 0
+          ? `${res.added_tags.length} ${t('detail.fetchMeta.added')}`
+          : t('detail.fetchMeta.noNew'),
+      );
+      if (res.title_applied && res.new_title) parts.push(`“${res.new_title}”`);
+      setMsgKind('ok');
+      setMsg(parts.join(' · '));
+      onChanged();
+    } catch (err) {
+      setMsgKind('error');
+      setMsg(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }, [selected, archive.id, url, mode, setTitle, onChanged]);
+
+  return (
+    <>
+      <button type="button" className="btn" onClick={() => setOpen(true)}>
+        ⤵ {t('detail.fetchMeta')}
+      </button>
+      <Modal open={open} onClose={() => setOpen(false)} title={t('detail.fetchMeta')}>
+        <div className="fetch-meta">
+          <label className="fetch-meta__field">
+            <span>{t('detail.fetchMeta.plugin')}</span>
+            <select
+              className="select"
+              value={selected}
+              onChange={(e) => setNamespace(e.target.value)}
+            >
+              {metaPlugins.map((p) => (
+                <option key={p.namespace} value={p.namespace}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="fetch-meta__field">
+            <span>{t('detail.fetchMeta.url')}</span>
+            <input
+              type="text"
+              placeholder="https://nhentai.net/g/…"
+              aria-label={t('detail.fetchMeta.url')}
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+            />
+            <span className="fetch-meta__hint">{t('detail.fetchMeta.urlHint')}</span>
+          </label>
+
+          <label className="fetch-meta__field">
+            <span>{t('detail.fetchMeta.mode')}</span>
+            <select
+              className="select"
+              value={mode}
+              onChange={(e) => setMode(e.target.value as 'merge' | 'replace')}
+            >
+              <option value="merge">{t('detail.fetchMeta.merge')}</option>
+              <option value="replace">{t('detail.fetchMeta.replace')}</option>
+            </select>
+          </label>
+
+          <label className="fetch-meta__check">
+            <input
+              type="checkbox"
+              checked={setTitle}
+              onChange={(e) => setSetTitle(e.target.checked)}
+            />
+            <span>{t('detail.fetchMeta.setTitle')}</span>
+          </label>
+
+          <div className="fetch-meta__actions">
+            <button
+              type="button"
+              className="btn btn--primary"
+              disabled={busy || !selected}
+              onClick={run}
+            >
+              {busy ? t('detail.fetchMeta.running') : t('detail.fetchMeta.run')}
+            </button>
+            <button type="button" className="btn" onClick={() => setOpen(false)}>
+              {t('common.close')}
+            </button>
+          </div>
+
+          {msg && (
+            <div
+              className={`fetch-meta__msg ${msgKind === 'error' ? 'fetch-meta__msg--error' : ''}`}
+              role={msgKind === 'error' ? 'alert' : 'status'}
+            >
+              {msg}
+            </div>
+          )}
+        </div>
+      </Modal>
+    </>
+  );
+}
+
 /** Favorite-list toggles. Loads lists, toggles membership per list. */
 function FavoritePicker({ archiveId, isOwner }: { archiveId: string; isOwner: boolean }) {
   const { data, reload } = useAsync<{ lists: FavoriteList[] }>(
@@ -339,6 +500,7 @@ function FavoritePicker({ archiveId, isOwner }: { archiveId: string; isOwner: bo
   const [open, setOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const isIn = useCallback(
     (list: FavoriteList) => list.archive_ids?.includes(archiveId) ?? false,
@@ -348,10 +510,13 @@ function FavoritePicker({ archiveId, isOwner }: { archiveId: string; isOwner: bo
   const toggle = useCallback(
     async (list: FavoriteList) => {
       setBusy(list.id);
+      setError(null);
       try {
         if (isIn(list)) await removeFavorite(list.id, archiveId);
         else await addFavorite(list.id, archiveId);
         reload();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
       } finally {
         setBusy(null);
       }
@@ -361,9 +526,14 @@ function FavoritePicker({ archiveId, isOwner }: { archiveId: string; isOwner: bo
 
   const addList = useCallback(async () => {
     if (!newName.trim()) return;
-    await createFavoriteList(newName.trim());
-    setNewName('');
-    reload();
+    setError(null);
+    try {
+      await createFavoriteList(newName.trim());
+      setNewName('');
+      reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   }, [newName, reload]);
 
   return (
@@ -391,6 +561,7 @@ function FavoritePicker({ archiveId, isOwner }: { archiveId: string; isOwner: bo
             <input
               className="select"
               placeholder={t('detail.addFavList')}
+              aria-label={t('detail.addFavList')}
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && addList()}
@@ -398,6 +569,11 @@ function FavoritePicker({ archiveId, isOwner }: { archiveId: string; isOwner: bo
             <button type="button" className="btn btn--small" onClick={addList}>
               +
             </button>
+          </div>
+        )}
+        {error && (
+          <div className="fetch-meta__msg fetch-meta__msg--error" role="alert">
+            {error}
           </div>
         )}
       </Modal>

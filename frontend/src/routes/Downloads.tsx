@@ -91,12 +91,14 @@ export function Downloads() {
           <input
             className="select downloads__url"
             placeholder={t('downloads.url')}
+            aria-label={t('downloads.url')}
             value={url}
             onChange={(e) => setUrl(e.target.value)}
           />
           <input
             className="select downloads__cat"
             placeholder="catid (optional)"
+            aria-label="Category id (optional)"
             value={catid}
             onChange={(e) => setCatid(e.target.value)}
           />

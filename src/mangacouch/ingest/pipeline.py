@@ -9,6 +9,7 @@ main thread by :class:`Ingestor`. The manga folder is the source of truth; this 
 from __future__ import annotations
 
 import logging
+import threading
 from concurrent.futures import Executor
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -124,6 +125,11 @@ class Ingestor:
         self.cover_size = cover_size
         self.quality = quality
         self.executor = executor
+        # Serialises index/remove across the callers that share this Ingestor (initial scan,
+        # watcher, uploads, downloads, POST /library/scan) — the check-then-insert patterns in
+        # _persist/_sync_tags are not safe to interleave.
+        self._write_lock = threading.Lock()
+        self._scan_lock = threading.Lock()
 
     # -- public API ---------------------------------------------------------------------------
 
@@ -133,44 +139,55 @@ class Ingestor:
             return None
         rel = path.relative_to(self.manga_root).as_posix()
 
-        with session_scope() as session:
-            existing = session.scalar(select(Archive).where(Archive.rel_path == rel))
-            if existing is not None:
-                st = path.stat()
-                if existing.size == st.st_size and abs(existing.mtime - st.st_mtime) < 1e-6:
-                    return existing.id  # unchanged → never re-read (R4)
+        with self._write_lock:
+            with session_scope() as session:
+                existing = session.scalar(select(Archive).where(Archive.rel_path == rel))
+                if existing is not None:
+                    st = path.stat()
+                    if existing.size == st.st_size and abs(existing.mtime - st.st_mtime) < 1e-6:
+                        return existing.id  # unchanged → never re-read (R4)
 
-        payload = self._compute(path)
-        if payload.error or not payload.archive_id:
-            log.warning("ingest failed for %s: %s", rel, payload.error)
-            return None
-        return self._persist(path, payload)
+            payload = self._compute(path)
+            if payload.error or not payload.archive_id:
+                log.warning("ingest failed for %s: %s", rel, payload.error)
+                return None
+            return self._persist(path, payload)
 
     def remove_path(self, rel_path: str) -> None:
-        with session_scope() as session:
-            arch = session.scalar(select(Archive).where(Archive.rel_path == rel_path))
-            if arch is None:
-                return
-            archive_id = arch.id
-            session.delete(arch)
-        self.thumbs.delete_archive(archive_id)
-        self.search.delete(archive_id)
+        with self._write_lock:
+            with session_scope() as session:
+                arch = session.scalar(select(Archive).where(Archive.rel_path == rel_path))
+                if arch is None:
+                    return
+                archive_id = arch.id
+                session.delete(arch)
+            self.thumbs.delete_archive(archive_id)
+            self.search.delete(archive_id)
 
     def scan(self, paths: list[Path] | None = None) -> dict[str, int]:
-        """Index every supported archive under the manga root (or a given subset)."""
-        files = paths if paths is not None else self._discover()
-        stats = {"indexed": 0, "skipped": 0, "failed": 0}
-        for path in files:
-            try:
-                result = self.index_file(path)
-                if result is None:
-                    stats["skipped"] += 1
-                else:
-                    stats["indexed"] += 1
-            except Exception:
-                log.exception("error indexing %s", path)
-                stats["failed"] += 1
-        return stats
+        """Index every supported archive under the manga root (or a given subset).
+
+        Only one full scan runs at a time; a second call while one is in flight is a no-op.
+        """
+        if not self._scan_lock.acquire(blocking=False):
+            log.info("scan already running — skipping duplicate request")
+            return {"indexed": 0, "skipped": 0, "failed": 0, "already_running": 1}
+        try:
+            files = paths if paths is not None else self._discover()
+            stats = {"indexed": 0, "skipped": 0, "failed": 0}
+            for path in files:
+                try:
+                    result = self.index_file(path)
+                    if result is None:
+                        stats["skipped"] += 1
+                    else:
+                        stats["indexed"] += 1
+                except Exception:
+                    log.exception("error indexing %s", path)
+                    stats["failed"] += 1
+            return stats
+        finally:
+            self._scan_lock.release()
 
     # -- internals ----------------------------------------------------------------------------
 
@@ -231,7 +248,10 @@ class Ingestor:
             title = sidecars.normalise_display(Path(payload.original_filename).stem)
 
         with session_scope() as session:
-            self._reconcile_identity(session, payload)
+            if self._reconcile_identity(session, payload):
+                # Duplicate content whose original still exists — leave the existing row
+                # (and its progress/favorites) pointing at the original file.
+                return payload.archive_id
             arch = session.get(Archive, payload.archive_id)
             if arch is None:
                 arch = Archive(id=payload.archive_id, added_at=datetime.now(UTC))
@@ -280,8 +300,14 @@ class Ingestor:
                              uploader, posted_dt, mc)
         return payload.archive_id
 
-    def _reconcile_identity(self, session: Session, payload: IngestPayload) -> None:
-        """Handle moves and re-content: drop a stale row that now points at a missing/other file."""
+    def _reconcile_identity(self, session: Session, payload: IngestPayload) -> bool:
+        """Handle moves and re-content: drop a stale row that now points at a missing/other file.
+
+        Returns ``True`` when the payload is a *duplicate copy* (same content, original file
+        still present) — the caller must then leave the existing row untouched, otherwise the
+        copy would steal the row and deleting the copy would cascade away the original's
+        progress/favorites/tags.
+        """
         # Same path, different content (id changed): remove the old row so the new id can be inserted.
         stale = session.scalar(
             select(Archive).where(
@@ -300,6 +326,8 @@ class Ingestor:
             old_abs = self.manga_root / same.rel_path
             if old_abs.exists():
                 log.info("duplicate content: %s mirrors %s", payload.rel_path, same.rel_path)
+                return True
+        return False
 
     def _sync_tags(self, session: Session, arch: Archive, tags: list[str]) -> None:
         session.query(ArchiveTag).filter(ArchiveTag.archive_id == arch.id).delete()

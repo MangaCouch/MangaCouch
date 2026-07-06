@@ -19,25 +19,35 @@ export function ScrollView({
   const pageRefs = useRef<(HTMLDivElement | null)[]>([]);
   const scrolledToResume = useRef(false);
 
-  // Observe which page is centered to keep `current`/progress in sync.
+  // Observe which page is centered to keep `current`/progress in sync. The
+  // observer only signals "something crossed a boundary"; the actual pick is
+  // the page spanning (or nearest to) the viewport center, so pages taller
+  // than the viewport — whose intersection ratio never gets large — still
+  // become current while scrolling through them.
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    const obs = new IntersectionObserver(
-      (entries) => {
-        // Pick the most-visible intersecting page.
-        let best: { index: number; ratio: number } | null = null;
-        for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
-          const index = Number((entry.target as HTMLElement).dataset.index);
-          if (!best || entry.intersectionRatio > best.ratio) {
-            best = { index, ratio: entry.intersectionRatio };
-          }
+    const updateCurrent = () => {
+      const box = container.getBoundingClientRect();
+      const centerY = box.top + box.height / 2;
+      let bestIndex = -1;
+      let bestDist = Number.POSITIVE_INFINITY;
+      pageRefs.current.forEach((el, index) => {
+        if (!el) return;
+        const r = el.getBoundingClientRect();
+        const dist =
+          r.top > centerY ? r.top - centerY : r.bottom < centerY ? centerY - r.bottom : 0;
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestIndex = index;
         }
-        if (best) goToPage(best.index);
-      },
-      { root: container, threshold: [0.25, 0.5, 0.75] },
-    );
+      });
+      if (bestIndex >= 0) goToPage(bestIndex);
+    };
+    const obs = new IntersectionObserver(updateCurrent, {
+      root: container,
+      threshold: [0, 0.25, 0.5, 0.75, 1],
+    });
     for (const el of pageRefs.current) if (el) obs.observe(el);
     return () => obs.disconnect();
   }, [pages.length, goToPage]);
