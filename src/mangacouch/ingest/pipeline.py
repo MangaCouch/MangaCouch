@@ -173,6 +173,7 @@ class Ingestor:
             log.info("scan already running — skipping duplicate request")
             return {"indexed": 0, "skipped": 0, "failed": 0, "already_running": 1}
         try:
+            full_scan = paths is None
             files = paths if paths is not None else self._discover()
             stats = {"indexed": 0, "skipped": 0, "failed": 0}
             for path in files:
@@ -185,9 +186,36 @@ class Ingestor:
                 except Exception:
                     log.exception("error indexing %s", path)
                     stats["failed"] += 1
+            if full_scan:
+                # Files deleted/renamed while the server was down never produced a watcher
+                # event — prune rows whose file is gone or they linger as ghost archives.
+                stats["pruned"] = self._prune_missing({
+                    p.relative_to(self.manga_root).as_posix() for p in files
+                })
             return stats
         finally:
             self._scan_lock.release()
+
+    def _prune_missing(self, discovered_rel_paths: set[str]) -> int:
+        """Remove index rows for archives that no longer exist on disk (full scans only)."""
+        pruned = 0
+        with self._write_lock:
+            with session_scope() as session:
+                rows = session.execute(select(Archive.id, Archive.rel_path)).all()
+            for archive_id, rel_path in rows:
+                if rel_path in discovered_rel_paths:
+                    continue
+                if (self.manga_root / rel_path).is_file():
+                    continue  # appeared after discovery — leave it alone
+                with session_scope() as session:
+                    arch = session.get(Archive, archive_id)
+                    if arch is not None:
+                        session.delete(arch)
+                self.thumbs.delete_archive(archive_id)
+                self.search.delete(archive_id)
+                log.info("pruned missing archive %s (%s)", archive_id, rel_path)
+                pruned += 1
+        return pruned
 
     # -- internals ----------------------------------------------------------------------------
 

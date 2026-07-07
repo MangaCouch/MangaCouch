@@ -2,7 +2,7 @@
 // chrome (it manages its own full-bleed UI), so Layout is applied per-route
 // rather than wrapping the router.
 
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useTheme } from '../hooks/useTheme';
 import { t } from '../i18n/strings';
@@ -10,6 +10,7 @@ import { t } from '../i18n/strings';
 export function Layout() {
   const { lock, isOwner, role } = useAuth();
   const { theme, toggle } = useTheme();
+  const location = useLocation();
 
   return (
     <div className="app-shell">
@@ -57,7 +58,8 @@ export function Layout() {
           </button>
         </div>
       </header>
-      <main className="app-main">
+      {/* Keyed by pathname so route changes replay the subtle entrance animation. */}
+      <main className="app-main" key={location.pathname}>
         <Outlet />
       </main>
     </div>

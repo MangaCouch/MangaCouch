@@ -7,9 +7,24 @@
 
 export type Role = 'owner' | 'reader';
 
+/** Server-configured client defaults (config.toml [reader]/[auth]) sent with login.
+ * Used only to seed local preferences that the user has never set. */
+export interface ClientDefaults {
+  reader?: {
+    mode?: string;
+    direction?: string;
+    fit?: string;
+    preload?: number;
+  };
+  theme?: string;
+  language?: string;
+  auto_lock_minutes?: number;
+}
+
 export interface LoginResponse {
   api_key: string;
   role: Role;
+  defaults?: ClientDefaults;
 }
 
 /** A single namespaced tag. `translated` is the localized display string. */

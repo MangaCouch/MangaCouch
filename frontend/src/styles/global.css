@@ -157,10 +157,12 @@ h2 {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-contrast);
+  box-shadow: 0 1px 8px color-mix(in srgb, var(--accent) 30%, transparent);
 }
 .btn--primary:hover:not(:disabled) {
   background: var(--accent-2);
   border-color: var(--accent-2);
+  box-shadow: 0 2px 12px color-mix(in srgb, var(--accent-2) 40%, transparent);
 }
 .btn--danger {
   border-color: var(--danger);
@@ -245,9 +247,24 @@ input[type='range'] {
   gap: 0.25rem;
 }
 .navbar__link {
+  position: relative;
   padding: 0.45rem 0.7rem;
   border-radius: var(--radius-sm);
   color: var(--text-muted);
+  transition: color 0.12s, background 0.12s;
+}
+.navbar__link::after {
+  content: '';
+  position: absolute;
+  left: 0.7rem;
+  right: 0.7rem;
+  bottom: 0.15rem;
+  height: 2px;
+  border-radius: 999px;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: center;
+  transition: transform 0.18s ease;
 }
 .navbar__link:hover {
   color: var(--text);
@@ -256,6 +273,9 @@ input[type='range'] {
 .navbar__link.active {
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.navbar__link.active::after {
+  transform: scaleX(1);
 }
 .navbar__actions {
   margin-left: auto;
@@ -279,6 +299,13 @@ input[type='range'] {
   max-width: 1400px;
   margin: 0 auto;
   padding: 1.25rem 1rem 4rem;
+  animation: route-in 0.2s ease backwards;
+}
+@keyframes route-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
 }
 
 /* ---- Lock screen --------------------------------------------------------- */
@@ -398,17 +425,35 @@ input[type='range'] {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
-  transition: transform 0.12s, border-color 0.12s, box-shadow 0.12s;
+  transition: transform 0.15s ease, border-color 0.15s, box-shadow 0.15s;
+  animation: card-in 0.25s ease backwards;
+}
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
 }
 .card:hover {
   transform: translateY(-3px);
   border-color: var(--accent);
   box-shadow: var(--shadow);
 }
+.card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 .card__cover {
   position: relative;
   aspect-ratio: 70 / 99;
   background: var(--bg-elev-2);
+  overflow: hidden;
+}
+.card__cover .smart-image__img {
+  transition: transform 0.3s ease, opacity 0.25s ease;
+}
+.card:hover .card__cover .smart-image__img {
+  transform: scale(1.045);
 }
 .card__cover-img,
 .card__cover-img .smart-image__img {
@@ -669,6 +714,7 @@ input[type='range'] {
   border-radius: 999px;
   font-size: 0.8rem;
   font-family: inherit;
+  transition: border-color 0.12s, color 0.12s, background 0.12s;
 }
 .chip--clickable {
   cursor: pointer;
@@ -895,7 +941,11 @@ input[type='range'] {
   .modal,
   .collapse__outer,
   .collapse__chevron,
-  .card {
+  .card,
+  .card__cover .smart-image__img,
+  .app-main,
+  .pages__slot,
+  .navbar__link::after {
     animation: none;
     transition: none;
   }
@@ -1379,6 +1429,15 @@ input[type='range'] {
   justify-content: center;
   flex: 0 1 auto;
   max-width: 100%;
+  /* Slots are keyed by page index, so each page turn remounts them — this plays a
+     quick settle animation that reads as a page transition. */
+  animation: page-turn 0.16s ease;
+}
+@keyframes page-turn {
+  from {
+    opacity: 0.35;
+    transform: scale(0.992);
+  }
 }
 .pages__spread[data-count='2'] .pages__slot {
   max-width: 50%;

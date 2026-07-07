@@ -303,3 +303,46 @@ def test_opds_root(env: Env):
     assert r.status_code == 200
     assert "<feed" in r.text
     assert env.archive_id in r.text
+
+
+def test_download_original_archive(env: Env):
+    r = env.client.get(f"/api/archives/{env.archive_id}/download", headers=_bearer(env.reader_key))
+    assert r.status_code == 200
+    assert r.headers["content-type"] == "application/zip"
+    assert "Gallery.zip" in r.headers.get("content-disposition", "")
+    assert r.content[:2] == b"PK"  # the original bytes, not a re-pack
+    # Media-style ?key= auth works too (OPDS readers can't set headers).
+    key = base64.b64encode(env.reader_key.encode()).decode()
+    r2 = env.client.get(f"/api/archives/{env.archive_id}/download", params={"key": key})
+    assert r2.status_code == 200
+
+
+def test_opds_acquisition_and_key_propagation(env: Env):
+    key = base64.b64encode(env.reader_key.encode()).decode()
+    r = env.client.get("/api/opds", params={"key": key})
+    assert r.status_code == 200
+    assert "opds-spec.org/acquisition" in r.text
+    # Generated media links must carry the caller's key or readers 401 on every cover/page.
+    assert f"/api/archives/{env.archive_id}/download?key=" in r.text
+    assert f"/api/archives/{env.archive_id}/thumbnail?key=" in r.text
+
+
+def test_thumbnail_prewarm_sweep(env: Env):
+    from mangacouch.core.thumbnails import VARIANT_PAGE
+
+    stats = env.ctx.prewarm_thumbnails()
+    assert stats["generated"] == 3
+    assert all(env.ctx.thumbs.has(env.archive_id, p, VARIANT_PAGE) for p in range(3))
+    # Idempotent: a second sweep generates nothing.
+    stats2 = env.ctx.prewarm_thumbnails()
+    assert stats2["generated"] == 0
+    assert stats2["skipped"] >= 1
+
+
+def test_login_returns_client_defaults(env: Env):
+    r = env.client.post("/api/auth/login", json={"passcode": "readerpass"})
+    assert r.status_code == 200
+    defaults = r.json()["defaults"]
+    assert defaults["reader"]["mode"] in ("scroll", "paged")
+    assert defaults["reader"]["direction"] in ("rtl", "ltr")
+    assert isinstance(defaults["auto_lock_minutes"], int)

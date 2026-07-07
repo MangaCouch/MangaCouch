@@ -7,6 +7,7 @@ import {
   changePasscode,
   getConfig,
   listPlugins,
+  prewarmThumbnails,
   regenThumbnails,
   scanLibrary,
   setPluginConfig,
@@ -283,6 +284,15 @@ function AdminActions() {
           onClick={() => run(t('settings.regen'), regenThumbnails)}
         >
           {busy === t('settings.regen') ? '…' : t('settings.regen')}
+        </button>
+        <button
+          type="button"
+          className="btn"
+          disabled={busy !== null}
+          title={t('settings.prewarm.hint')}
+          onClick={() => run(t('settings.prewarm'), prewarmThumbnails)}
+        >
+          {busy === t('settings.prewarm') ? '…' : t('settings.prewarm')}
         </button>
       </div>
       {msg && <div className="settings__msg">{msg}</div>}

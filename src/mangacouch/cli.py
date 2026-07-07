@@ -153,19 +153,33 @@ def _headless_context(config: Config):
 
 
 def _refresh_tags(config: Config) -> int:
+    import json
+    from datetime import UTC, datetime
+
     import httpx
 
     from .db.base import session_scope
+    from .db.models import AppConfig
     from .tags.translation import fetch_tagdb, ingest_tagdb
 
     async def _go() -> dict:
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(
+            proxy=config.acquisition.proxy or None, follow_redirects=True
+        ) as client:
             return await fetch_tagdb(client)
 
     _ensure_db(config)
     data = asyncio.run(_go())
     with session_scope() as session:
-        return ingest_tagdb(session, data)
+        count = ingest_tagdb(session, data)
+        # Stamp the refresh time so the server's periodic refresher doesn't re-download on boot.
+        stamp = json.dumps(datetime.now(UTC).isoformat())
+        row = session.get(AppConfig, "tagdb_refreshed_at")
+        if row is None:
+            session.add(AppConfig(key="tagdb_refreshed_at", value=stamp))
+        else:
+            row.value = stamp
+        return count
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -20,7 +20,8 @@ from ...auth.security import (
     verify_passcode,
 )
 from ...db.models import AuthCredential, AuthSession
-from ..deps import current_identity, get_db, require_owner, require_reader
+from ...state import AppContext
+from ..deps import current_identity, get_context, get_db, require_owner, require_reader
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -32,21 +33,40 @@ class LoginRequest(BaseModel):
 class LoginResponse(BaseModel):
     api_key: str
     role: str
+    # Server-configured client defaults (config.toml [reader]/[auth]); the PWA seeds its
+    # local preferences from these on first login and local overrides win afterwards.
+    defaults: dict = {}
 
 
 # Brute-force guard: passcodes can be short, so failed logins back off per client IP with an
 # escalating lockout (also caps the CPU spent on argon2 verifies). In-memory is fine — a restart
 # resetting the counters is acceptable.
 _FAIL_LOCK = threading.Lock()
-_FAILURES: dict[str, tuple[int, float]] = {}  # ip -> (consecutive failures, locked_until)
+# ip -> (consecutive failures, locked_until, last_activity) — pruned so rotating source IPs
+# (trivial with IPv6) can't grow the map without bound.
+_FAILURES: dict[str, tuple[int, float, float]] = {}
 _FREE_ATTEMPTS = 5
 _BASE_LOCKOUT_S = 30.0
 _MAX_LOCKOUT_S = 900.0
+_FAILURE_TTL_S = 3600.0
+_MAX_TRACKED_IPS = 10_000
+
+
+def _prune_failures_locked(now: float) -> None:
+    stale = [ip for ip, (_c, until, seen) in _FAILURES.items()
+             if now >= until and now - seen > _FAILURE_TTL_S]
+    for ip in stale:
+        del _FAILURES[ip]
+    if len(_FAILURES) > _MAX_TRACKED_IPS:  # hard cap: drop the least-recently-active
+        for ip, _ in sorted(_FAILURES.items(), key=lambda kv: kv[1][2])[
+            : len(_FAILURES) - _MAX_TRACKED_IPS
+        ]:
+            del _FAILURES[ip]
 
 
 def _throttle_check(ip: str) -> None:
     with _FAIL_LOCK:
-        _count, until = _FAILURES.get(ip, (0, 0.0))
+        _count, until, _seen = _FAILURES.get(ip, (0, 0.0, 0.0))
         if time.monotonic() < until:
             raise HTTPException(
                 status.HTTP_429_TOO_MANY_REQUESTS,
@@ -55,13 +75,15 @@ def _throttle_check(ip: str) -> None:
 
 
 def _throttle_failure(ip: str) -> None:
+    now = time.monotonic()
     with _FAIL_LOCK:
-        count, _until = _FAILURES.get(ip, (0, 0.0))
+        _prune_failures_locked(now)
+        count, _until, _seen = _FAILURES.get(ip, (0, 0.0, 0.0))
         count += 1
         lock_for = 0.0
         if count >= _FREE_ATTEMPTS:
             lock_for = min(_BASE_LOCKOUT_S * 2 ** (count - _FREE_ATTEMPTS), _MAX_LOCKOUT_S)
-        _FAILURES[ip] = (count, time.monotonic() + lock_for)
+        _FAILURES[ip] = (count, now + lock_for, now)
 
 
 def _throttle_reset(ip: str) -> None:
@@ -70,19 +92,51 @@ def _throttle_reset(ip: str) -> None:
 
 
 @router.post("/login", response_model=LoginResponse)
-def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)) -> LoginResponse:
+def login(
+    body: LoginRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    ctx: AppContext = Depends(get_context),
+) -> LoginResponse:
     ip = request.client.host if request.client else "unknown"
     _throttle_check(ip)
     # Owner is checked first so a shared owner/reader passcode resolves to the higher role.
     for role in (Role.OWNER, Role.READER):
         cred = db.get(AuthCredential, role.value)
         if cred and cred.enabled and verify_passcode(cred.passcode_hash, body.passcode):
+            _purge_expired_sessions(db)
             token = generate_api_key()
             db.add(AuthSession(token_hash=hash_api_key(token), role=role.value))
             _throttle_reset(ip)
-            return LoginResponse(api_key=token, role=role.value)
+            return LoginResponse(api_key=token, role=role.value, defaults=_client_defaults(ctx))
     _throttle_failure(ip)
     raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid passcode")
+
+
+def _purge_expired_sessions(db: Session) -> None:
+    """Idle-expired sessions are otherwise deleted only when their exact token is presented
+    again — without this, every PWA re-login would leave a row behind forever."""
+    from datetime import UTC, datetime
+
+    from ..deps import SESSION_IDLE_MAX
+
+    cutoff = datetime.now(UTC) - SESSION_IDLE_MAX
+    db.execute(delete(AuthSession).where(AuthSession.last_seen < cutoff))
+
+
+def _client_defaults(ctx: AppContext) -> dict:
+    r = ctx.config.reader
+    return {
+        "reader": {
+            "mode": r.default_mode,
+            "direction": r.default_direction,
+            "fit": r.default_fit,
+            "preload": r.default_preload,
+        },
+        "theme": r.theme,
+        "language": r.language,
+        "auto_lock_minutes": ctx.config.auth.auto_lock_minutes,
+    }
 
 
 @router.post("/logout")

@@ -20,8 +20,8 @@ import {
   setUnauthorizedHandler,
 } from '../api/client';
 import { login as loginRequest } from '../api/endpoints';
-import { lsGet } from '../lib/storage';
-import type { Role } from '../api/types';
+import { lsGet, lsGetRaw, lsSet } from '../lib/storage';
+import type { ClientDefaults, Role } from '../api/types';
 
 interface AuthState {
   unlocked: boolean;
@@ -35,6 +35,37 @@ const AuthContext = createContext<AuthState | null>(null);
 
 /** Idle minutes before auto-lock; 0 = disabled. Stored by Settings. */
 export const AUTOLOCK_KEY = 'autolockMinutes';
+
+/** One-time flag: server client-defaults have been seeded into local prefs. */
+const DEFAULTS_SEEDED_KEY = 'defaultsSeeded';
+
+/**
+ * Seed local preferences from the server's config.toml defaults, once, on the
+ * first login on this device. Existing local values always win.
+ */
+function seedClientDefaults(defaults?: ClientDefaults): void {
+  if (!defaults || lsGetRaw(DEFAULTS_SEEDED_KEY) != null) return;
+  lsSet(DEFAULTS_SEEDED_KEY, true);
+
+  if (typeof defaults.auto_lock_minutes === 'number' && lsGetRaw(AUTOLOCK_KEY) == null) {
+    lsSet(AUTOLOCK_KEY, defaults.auto_lock_minutes);
+  }
+
+  const r = defaults.reader;
+  if (r && lsGetRaw('readerSettings') == null) {
+    const seed: Record<string, unknown> = {};
+    if (r.mode === 'paged' || r.mode === 'scroll') seed.mode = r.mode;
+    if (r.direction === 'ltr' || r.direction === 'rtl') seed.direction = r.direction;
+    if (['width', 'height', 'container', 'original'].includes(r.fit ?? '')) seed.fit = r.fit;
+    if (typeof r.preload === 'number') seed.preload = r.preload;
+    lsSet('readerSettings', seed);
+  }
+
+  if (defaults.theme === 'dark' || defaults.theme === 'light') {
+    lsSet('theme', defaults.theme);
+    document.documentElement.setAttribute('data-theme', defaults.theme);
+  }
+}
 
 const ACTIVITY_EVENTS = [
   'mousemove',
@@ -67,6 +98,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (passcode: string) => {
     const res = await loginRequest(passcode);
     setCredentials(res.api_key, res.role);
+    seedClientDefaults(res.defaults);
     setRole(res.role);
     setUnlocked(true);
   }, []);

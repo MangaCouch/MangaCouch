@@ -40,6 +40,7 @@ const en: Dict = {
   'detail.read': 'Read',
   'detail.continue': 'Continue',
   'detail.download': 'Source',
+  'detail.downloadFile': 'Download file',
   'detail.delete': 'Delete',
   'detail.tags': 'Tags',
   'detail.language': 'Language',
@@ -113,6 +114,9 @@ const en: Dict = {
   'settings.save': 'Save',
   'settings.scan': 'Scan library',
   'settings.regen': 'Regenerate thumbnails',
+  'settings.prewarm': 'Prewarm page thumbnails',
+  'settings.prewarm.hint':
+    'Pre-generate every page-grid thumbnail in the background so detail pages open instantly',
   'settings.upload': 'Upload archive',
   'settings.plugins': 'Plugins',
   'settings.theme': 'Theme',

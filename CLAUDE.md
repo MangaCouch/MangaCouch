@@ -1,7 +1,9 @@
 # MangaCouch — project guide for Claude Code
 
 The full design lives in [`docs/design-spec.md`](docs/design-spec.md) (the self-contained build
-spec). This file records the **implemented** stack and the day-to-day commands.
+spec); [`docs/`](docs/README.md) also holds the decision log, the raw maintainer feedback, the
+full requirements wishlist (P0–P2), and deep e-hentai protocol notes. This file records the
+**implemented** stack and the day-to-day commands.
 
 ## Stack (chosen & in use)
 

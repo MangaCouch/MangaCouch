@@ -69,6 +69,11 @@ def update_category(
     cat = db.get(Category, category_id)
     if cat is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "category not found")
+    if body.type not in ("static", "dynamic"):
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "type must be static|dynamic")
+    if cat.type == "static" and body.type == "dynamic":
+        # Members are meaningless on a dynamic category — drop them instead of stranding rows.
+        db.query(CategoryArchive).filter(CategoryArchive.category_id == cat.id).delete()
     cat.name = body.name
     cat.type = body.type
     cat.predicate = body.predicate

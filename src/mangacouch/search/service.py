@@ -9,8 +9,9 @@ two are combined by id-set intersection — correct and simple for a personal-sc
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import batched
 
-from sqlalchemy import Select, and_, exists, func, not_, select
+from sqlalchemy import ColumnElement, Select, and_, exists, func, not_, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..db.models import Archive, ArchiveTag, CategoryArchive, Progress, Tag
@@ -19,6 +20,19 @@ from .query import BASIC_NAMESPACES, NumericTerm, Query
 
 _READ_FRACTION = 0.85  # "read"/completed = progress/page_count > 85% (§5.7)
 _OPS = {"<": "__lt__", "<=": "__le__", ">": "__gt__", ">=": "__ge__", "=": "__eq__"}
+# One bind variable per id — a broad trigram query on a big library can exceed SQLite's
+# per-statement limit (999 on conservative builds), so IN/NOT IN sets are chunked.
+_IN_CHUNK = 900
+
+
+def _id_in(ids: set[str]) -> ColumnElement[bool]:
+    chunks = batched(sorted(ids), _IN_CHUNK, strict=False)
+    return or_(*(Archive.id.in_(chunk) for chunk in chunks))
+
+
+def _id_not_in(ids: set[str]) -> ColumnElement[bool]:
+    chunks = batched(sorted(ids), _IN_CHUNK, strict=False)
+    return and_(*(Archive.id.notin_(chunk) for chunk in chunks))
 
 
 @dataclass(slots=True)
@@ -83,9 +97,9 @@ def search_archives(
     if positive_ids is not None:
         if not positive_ids:
             return SearchResult(items=[], total=0, page=page, per_page=per_page)
-        stmt = stmt.where(Archive.id.in_(positive_ids))
+        stmt = stmt.where(_id_in(positive_ids))
     if negative_ids:
-        stmt = stmt.where(Archive.id.notin_(negative_ids))
+        stmt = stmt.where(_id_not_in(negative_ids))
 
     for term in query.numeric_terms:
         stmt = _apply_numeric(stmt, term)

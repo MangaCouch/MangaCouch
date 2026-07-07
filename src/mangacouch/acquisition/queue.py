@@ -113,7 +113,6 @@ class DownloadWorker:
 
     def _run(self) -> None:
         while not self._stop.is_set():
-            self._close_retired()
             job_id = self._claim_next()
             if job_id is None:
                 self._wake.wait(self.poll_interval)
@@ -341,17 +340,13 @@ class DownloadWorker:
         return self._login_session(namespace)
 
     def invalidate_sessions(self) -> None:
-        """Drop cached sessions (e.g. cookies changed). Clients are retired, not closed —
-        the worker may be streaming a download through one; it closes them between jobs."""
+        """Drop cached sessions (e.g. cookies changed). Clients are retired, NOT closed: the
+        worker may be streaming a download through one, and API threads (GP calculator, manual
+        plugin runs) may hold a borrowed reference with no job boundary to synchronise on.
+        Retired clients are closed only at shutdown — a bounded leak (one per config save)."""
         with self._session_lock:
             self._retired.extend(self._sessions.values())
             self._sessions.clear()
-
-    def _close_retired(self) -> None:
-        with self._session_lock:
-            clients, self._retired = self._retired, []
-        for client in clients:
-            client.close()
 
     # -- helpers ------------------------------------------------------------------------------
 

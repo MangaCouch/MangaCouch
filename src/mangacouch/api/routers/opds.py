@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import mimetypes
 from urllib.parse import quote
-from xml.sax.saxutils import escape
+from xml.sax.saxutils import escape, quoteattr
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy import select
@@ -22,6 +22,8 @@ _PSE_NS = "http://vaemendis.net/opds-pse/ns"
 
 
 def _feed(title: str, entries: str, *, self_url: str, extra_links: str = "") -> str:
+    # quoteattr (not escape) for attribute values: escape() leaves quotes alone, so a raw `"`
+    # in the request URL would otherwise break out of the href attribute.
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<feed xmlns="http://www.w3.org/2005/Atom" '
@@ -29,10 +31,17 @@ def _feed(title: str, entries: str, *, self_url: str, extra_links: str = "") -> 
         f'xmlns:pse="{_PSE_NS}">\n'
         f"  <title>{escape(title)}</title>\n"
         f"  <id>{escape(self_url)}</id>\n"
-        f'  <link rel="self" href="{escape(self_url)}" type="{_ATOM}"/>\n'
+        f'  <link rel="self" href={quoteattr(self_url)} type="{_ATOM}"/>\n'
         f'  <link rel="start" href="/api/opds" type="{_ATOM}"/>\n'
         f"{extra_links}{entries}</feed>\n"
     )
+
+
+_ACQ_MIMES = {
+    "zip": "application/zip",
+    "cbz": "application/vnd.comicbook+zip",
+    "pdf": "application/pdf",
+}
 
 
 def _archive_entry(arch: Archive, key: str | None = None) -> str:
@@ -40,15 +49,19 @@ def _archive_entry(arch: Archive, key: str | None = None) -> str:
     # — carry the caller's key into every generated media URL or they all 401.
     suffix = f"key={quote(key)}" if key else ""
     cover = f"/api/archives/{arch.id}/thumbnail" + (f"?{suffix}" if suffix else "")
+    download = f"/api/archives/{arch.id}/download" + (f"?{suffix}" if suffix else "")
     pse = f"/api/opds/{arch.id}/pse?page={{pageNumber}}" + (f"&{suffix}" if suffix else "")
+    acq_mime = _ACQ_MIMES.get(arch.format or "", "application/octet-stream")
     return (
         "  <entry>\n"
         f"    <title>{escape(arch.title or arch.original_filename)}</title>\n"
         f"    <id>urn:mangacouch:{arch.id}</id>\n"
-        f"    <link rel='http://opds-spec.org/image' href='{escape(cover)}' type='image/webp'/>\n"
-        f"    <link rel='http://opds-spec.org/image/thumbnail' href='{escape(cover)}' "
+        f"    <link rel='http://opds-spec.org/image' href={quoteattr(cover)} type='image/webp'/>\n"
+        f"    <link rel='http://opds-spec.org/image/thumbnail' href={quoteattr(cover)} "
         "type='image/webp'/>\n"
-        f"    <link rel='http://vaemendis.net/opds-pse/stream' href='{escape(pse)}' "
+        f"    <link rel='http://opds-spec.org/acquisition' href={quoteattr(download)} "
+        f"type='{acq_mime}'/>\n"
+        f"    <link rel='http://vaemendis.net/opds-pse/stream' href={quoteattr(pse)} "
         f"type='image/jpeg' pse:count='{arch.page_count}'/>\n"
         "  </entry>\n"
     )

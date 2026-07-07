@@ -11,7 +11,8 @@ import json
 import logging
 import threading
 from concurrent.futures import ProcessPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import diskcache
@@ -47,6 +48,8 @@ class AppContext:
     download_worker: DownloadWorker
     executor: ProcessPoolExecutor | None = None
     _started: bool = False
+    _maint_stop: threading.Event = field(default_factory=threading.Event)
+    _prewarm_running: threading.Lock = field(default_factory=threading.Lock)
 
     # -- plugin config (decrypted) ------------------------------------------------------------
 
@@ -119,6 +122,7 @@ class AppContext:
         if self._started:
             return
         self._started = True
+        self._maint_stop.clear()
         self.translator.load_safe()
         self.registry.discover(self.config.base_dir / "plugins")
         self._bootstrap_ehentai_cookies()
@@ -129,22 +133,35 @@ class AppContext:
             threading.Thread(
                 target=self._initial_scan, name="mc-initial-scan", daemon=True
             ).start()
+        elif self.config.thumbnails.prewarm == "full":
+            threading.Thread(
+                target=self.prewarm_thumbnails, name="mc-prewarm", daemon=True
+            ).start()
+        if self.config.acquisition.tag_refresh_hours > 0:
+            threading.Thread(
+                target=self._tag_refresh_loop, name="mc-tag-refresh", daemon=True
+            ).start()
 
     def _bootstrap_ehentai_cookies(self) -> None:
         """Import e(x)hentai login cookies from config.toml into the encrypted plugin store (§5.6).
 
-        Only non-empty values are imported; the canonical, encrypted copy then lives in
-        ``plugin_config`` so the plaintext cookies can be removed from ``config.toml``.
+        First-run seeding only: a key that already has a stored value is never overwritten —
+        cookies rotate, and re-importing stale config.toml values on every boot would silently
+        clobber fresher ones the user set in Settings → Plugins.
         """
         cookies = {k: v for k, v in self.config.acquisition.ehentai.items() if v}
         if not cookies:
             return
         try:
+            stored = self.plugin_config("ehentai_login")
+            fresh = {k: v for k, v in cookies.items() if not stored.get(k)}
+            if not fresh:
+                return
             self.set_plugin_config(
-                "ehentai_login", cookies, secret_keys={"ipb_pass_hash", "igneous"}
+                "ehentai_login", fresh, secret_keys={"ipb_pass_hash", "igneous"}
             )
             log.info("imported %d e-hentai cookie(s) from config into the encrypted store",
-                     len(cookies))
+                     len(fresh))
         except Exception:
             log.exception("failed to import e-hentai cookies from config")
 
@@ -155,6 +172,108 @@ class AppContext:
             self._rebuild_search_if_empty()
         except Exception:
             log.exception("initial scan failed")
+        if self.config.thumbnails.prewarm == "full":
+            self.prewarm_thumbnails()
+
+    # -- background maintenance ------------------------------------------------------------------
+
+    def prewarm_thumbnails(self) -> dict[str, int]:
+        """``thumbnails.prewarm = full``: pre-generate every page-grid thumbnail as a background
+        sweep so the first visit to any detail page is instant. Idempotent (skips existing thumbs)
+        and cheap to re-run. Note: with ``max_cache_mb`` set, the LRU cap still wins."""
+        from sqlalchemy import select
+
+        from .core.archives import open_archive
+        from .core.thumbnails import VARIANT_PAGE, generate_page_thumb
+        from .db.models import Archive
+
+        if not self._prewarm_running.acquire(blocking=False):
+            log.info("thumbnail prewarm already running — skipping duplicate request")
+            return {"generated": 0, "skipped": 0, "failed": 0, "already_running": 1}
+        try:
+            cfg = self.config.thumbnails
+            stats = {"generated": 0, "skipped": 0, "failed": 0}
+            with session_scope() as session:
+                rows = session.execute(select(Archive.id, Archive.rel_path, Archive.page_count)).all()
+            log.info("thumbnail prewarm: sweeping %d archives", len(rows))
+            for archive_id, rel_path, page_count in rows:
+                if self._maint_stop.is_set():
+                    log.info("thumbnail prewarm interrupted by shutdown")
+                    break
+                missing = [
+                    page for page in range(page_count)
+                    if not self.thumbs.has(archive_id, page, VARIANT_PAGE)
+                ]
+                if not missing:
+                    stats["skipped"] += 1
+                    continue
+                path = self.config.manga_root / rel_path
+                if not path.exists():
+                    continue
+                try:
+                    with open_archive(path) as reader:
+                        for page in missing:
+                            if self._maint_stop.is_set():
+                                break
+                            generate_page_thumb(
+                                self.thumbs, archive_id, reader, page,
+                                size=cfg.page_size, quality=cfg.quality,
+                            )
+                            stats["generated"] += 1
+                except Exception:
+                    log.exception("prewarm failed for %s", rel_path)
+                    stats["failed"] += 1
+            log.info("thumbnail prewarm done: %s", stats)
+            return stats
+        finally:
+            self._prewarm_running.release()
+
+    def _tag_refresh_loop(self) -> None:
+        """Keep the EhTagTranslation database fresh (``acquisition.tag_refresh_hours``)."""
+        check_interval = 1800.0  # re-check staleness every 30 min; refresh only when due
+        # Let the startup scan settle first — the ingest holds write transactions, and the
+        # 40k-row tag replace is itself one big write.
+        if self._maint_stop.wait(30.0):
+            return
+        while not self._maint_stop.is_set():
+            try:
+                self._refresh_tagdb_if_stale()
+            except Exception:
+                log.exception("tag refresh failed (will retry)")
+            self._maint_stop.wait(check_interval)
+
+    def _refresh_tagdb_if_stale(self) -> None:
+        import asyncio
+
+        import httpx
+
+        from .tags.translation import fetch_tagdb, ingest_tagdb
+
+        hours = self.config.acquisition.tag_refresh_hours
+        if hours <= 0:
+            return
+        last_raw = self.get_setting("tagdb_refreshed_at")
+        if last_raw:
+            try:
+                last = datetime.fromisoformat(str(last_raw))
+                if datetime.now(UTC) - last < timedelta(hours=hours):
+                    return
+            except ValueError:
+                pass  # unparseable timestamp → treat as stale
+
+        async def _go() -> dict:
+            async with httpx.AsyncClient(
+                proxy=self.config.acquisition.proxy or None, follow_redirects=True
+            ) as client:
+                return await fetch_tagdb(client)
+
+        log.info("refreshing EhTagTranslation database (older than %dh)", hours)
+        data = asyncio.run(_go())
+        with session_scope() as session:
+            count = ingest_tagdb(session, data)
+        self.set_setting("tagdb_refreshed_at", datetime.now(UTC).isoformat())
+        self.translator.load_safe()  # reload the in-memory map
+        log.info("tag database refreshed: %d entries", count)
 
     def _rebuild_search_if_empty(self) -> None:
         """Rebuild the FTS index only when it's actually empty (cache/ was deleted) — a full
@@ -181,6 +300,7 @@ class AppContext:
             self.search.rebuild((aid, title, tag_map.get(aid, [])) for aid, title in rows)
 
     def shutdown(self) -> None:
+        self._maint_stop.set()
         self.watcher.stop()
         self.download_worker.stop()
         self.thumbs.close()

@@ -103,6 +103,11 @@ def _coerce(value: Any, current: Any) -> Any:
         if isinstance(value, str):
             return value
         raise ValueError("expected a string")
+    if isinstance(current, list):
+        # e.g. cors_origins — a bare string would round-trip as per-character entries.
+        if isinstance(value, list) and all(isinstance(v, str) for v in value):
+            return value
+        raise ValueError("expected a list of strings")
     return value  # None / untyped: accept as-is
 
 
@@ -112,6 +117,15 @@ def scan(_: object = Depends(require_owner), ctx: AppContext = Depends(get_conte
         ctx.ingestor.scan()
 
     threading.Thread(target=_run, name="mc-scan", daemon=True).start()
+    return {"started": True}
+
+
+@router.post("/thumbnails/prewarm")
+def prewarm_thumbnails(
+    _: object = Depends(require_owner), ctx: AppContext = Depends(get_context)
+) -> dict:
+    """Kick off the full page-thumbnail sweep (same as thumbnails.prewarm=full at startup)."""
+    threading.Thread(target=ctx.prewarm_thumbnails, name="mc-prewarm", daemon=True).start()
     return {"started": True}
 
 

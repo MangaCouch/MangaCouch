@@ -77,9 +77,14 @@ def dhash(data: bytes, hash_size: int = 8) -> str:
     Computed with pyvips + numpy (no extra image dependency). Returns hex of the bit string;
     compare two hashes by Hamming distance over the bits.
     """
-    img = pyvips.Image.thumbnail_buffer(
-        data, hash_size + 1, height=hash_size, size="force"
-    ).colourspace("b-w")
+    img = pyvips.Image.thumbnail_buffer(data, hash_size + 1, height=hash_size, size="force")
+    if img.hasalpha():
+        # b-w keeps the alpha band; without flattening, the 2-band interleaved buffer would be
+        # misread as grey pixels and the hash would reflect the alpha pattern, not the image.
+        img = img.flatten(background=[255, 255, 255])
+    img = img.colourspace("b-w")
+    if img.bands > 1:
+        img = img[0]
     arr = np.ndarray(
         buffer=img.write_to_memory(), dtype=np.uint8, shape=(img.height, img.width)
     )

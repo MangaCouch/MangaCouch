@@ -62,6 +62,19 @@ def load_tagdb_file(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _text_of(value: object) -> str:
+    """``db.full.json`` fields are *rendered* objects (``{"raw", "text", "html"}``), while older
+    dumps used plain strings — accept both."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        for key in ("text", "raw", "html"):
+            v = value.get(key)
+            if isinstance(v, str) and v:
+                return v
+    return ""
+
+
 def ingest_tagdb(session: Session, raw: dict) -> int:
     """Replace the ``tag_translation`` table from a parsed ``db.full.json``. Returns row count."""
     session.execute(delete(TagTranslation))
@@ -72,8 +85,8 @@ def ingest_tagdb(session: Session, raw: dict) -> int:
         if not isinstance(entries, dict):
             continue
         for rawname, payload in entries.items():
-            name = (payload or {}).get("name") or rawname
-            intro = (payload or {}).get("intro") or ""
+            name = _text_of((payload or {}).get("name")) or rawname
+            intro = _text_of((payload or {}).get("intro"))
             session.add(
                 TagTranslation(
                     namespace=namespace,

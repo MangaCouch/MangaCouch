@@ -112,6 +112,11 @@ export function pageImageUrl(id: string, path: string): string {
   return mediaUrl(`/api/archives/${encodeURIComponent(id)}/page`, { path });
 }
 
+/** Download URL for the original, unmodified archive file. */
+export function archiveDownloadUrl(id: string): string {
+  return mediaUrl(`/api/archives/${encodeURIComponent(id)}/download`);
+}
+
 // ---- Tags -----------------------------------------------------------------
 
 export function getTagStats(signal?: AbortSignal) {
@@ -273,4 +278,8 @@ export function scanLibrary() {
 
 export function regenThumbnails() {
   return apiPost<{ ok?: boolean }>('/api/thumbnails/regen');
+}
+
+export function prewarmThumbnails() {
+  return apiPost<{ started?: boolean }>('/api/thumbnails/prewarm');
 }

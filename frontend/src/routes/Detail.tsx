@@ -7,6 +7,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   addFavorite,
+  archiveDownloadUrl,
   createFavoriteList,
   deleteArchive,
   getArchive,
@@ -188,6 +189,9 @@ function DetailContent({
                 {t('detail.download')}
               </a>
             )}
+            <a href={archiveDownloadUrl(archive.id)} className="btn" download>
+              ⭳ {t('detail.downloadFile')}
+            </a>
             {isOwner && (
               <FetchMetadataButton archive={archive} onChanged={onChanged} />
             )}

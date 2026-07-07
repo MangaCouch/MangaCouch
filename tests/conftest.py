@@ -50,6 +50,9 @@ def roots(tmp_path: Path) -> Config:
     config_mod.write_default_config(tmp_path)
     config = load_config(tmp_path)
     config.server = ServerConfig(host="127.0.0.1", port=0)
+    # No background network in tests: the periodic EhTagTranslation refresh would download
+    # db.full.json from GitHub and race test DB writes.
+    config.acquisition.tag_refresh_hours = 0
     config.ensure_roots()
     return config
 

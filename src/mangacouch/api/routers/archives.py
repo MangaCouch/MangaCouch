@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -109,6 +110,32 @@ def get_archive(
     data = serialize_archive(arch, ctx.translator, db=db, detail=True)
     data["related"] = related_archives(db, arch, ctx.translator)
     return data
+
+
+_ARCHIVE_MIMES = {
+    "zip": "application/zip",
+    "cbz": "application/vnd.comicbook+zip",
+    "pdf": "application/pdf",
+}
+
+
+@router.get("/archives/{archive_id}/download")
+def download_archive(
+    archive_id: str,
+    _: object = Depends(require_reader_media),
+    ctx: AppContext = Depends(get_context),
+    db: Session = Depends(get_db),
+) -> FileResponse:
+    """Serve the original, unmodified archive file (browser download + OPDS acquisition)."""
+    arch = _load(db, archive_id)
+    path = _archive_path(ctx, arch)
+    if not path.is_file():
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "archive file missing on disk")
+    return FileResponse(
+        path,
+        media_type=_ARCHIVE_MIMES.get(arch.format or "", "application/octet-stream"),
+        filename=arch.original_filename or path.name,
+    )
 
 
 # -- page list & page serving -----------------------------------------------------------------
