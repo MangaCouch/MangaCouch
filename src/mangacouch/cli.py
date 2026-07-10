@@ -167,11 +167,12 @@ def _set_app_flag(key: str, value: str) -> None:
 
 def cmd_nuke(args: argparse.Namespace) -> int:
     """Wipe everything MangaCouch generated — database, caches, search index, thumbnails, tag
-    translations, credentials — while leaving the manga folder untouched."""
+    translations, credentials, config.toml — while leaving the manga folder untouched."""
     import shutil
 
     base = Path(args.base).resolve() if args.base else None
     config = load_config(base)
+    nuke_config = not args.keep_config
 
     targets = [config.database_root, config.cache_root]
     # Safety: never delete a root the manga folder lives inside.
@@ -185,7 +186,7 @@ def cmd_nuke(args: argparse.Namespace) -> int:
     print("This will permanently delete:")
     for t in targets:
         print(f"  - {t}")
-    if args.config:
+    if nuke_config:
         print(f"  - {config.base_dir / config_mod.CONFIG_FILENAME}")
     print(f"The manga folder is kept: {config.manga_root}")
     if not args.yes:
@@ -198,7 +199,7 @@ def cmd_nuke(args: argparse.Namespace) -> int:
         if t.exists():
             shutil.rmtree(t, ignore_errors=True)
             print(f"removed {t}")
-    if args.config:
+    if nuke_config:
         (config.base_dir / config_mod.CONFIG_FILENAME).unlink(missing_ok=True)
         print("removed config.toml")
     print("Done. Run `mangacouch init` to start fresh (your manga folder is intact).")
@@ -293,10 +294,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_pass.set_defaults(func=cmd_set_passcode)
 
     p_nuke = sub.add_parser(
-        "nuke", help="delete the database, caches and tag translations (manga folder is kept)"
+        "nuke", help="delete the database, caches, tag translations and config.toml "
+        "(manga folder is kept)"
     )
     p_nuke.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
-    p_nuke.add_argument("--config", action="store_true", help="also delete config.toml")
+    p_nuke.add_argument("--keep-config", action="store_true", help="keep config.toml")
     p_nuke.set_defaults(func=cmd_nuke)
 
     p_mock = sub.add_parser("mock", help="generate mock archives in the manga folder (testing)")

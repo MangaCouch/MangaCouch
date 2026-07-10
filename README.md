@@ -14,8 +14,8 @@ See [`docs/design-spec.md`](docs/design-spec.md) for the full design.
 ## Highlights
 
 - **One process, no broker.** Embedded SQLite + in-process workers. No Redis, no Celery.
-- **Archives are the source of truth.** The database is a rebuildable index over `manga/`. Delete
-  `cache/` any time — it rebuilds.
+- **Archives are the source of truth.** The database is a rebuildable index over `data/manga/`.
+  Delete `data/cache/` any time — it rebuilds.
 - **Strong file identity.** Primary id = full-file `xxh3-128`; a separate content *fingerprint*
   (hash of sorted per-image digests) finds re-zips and cbz↔zip duplicates. Hashes are cached by
   `(rel_path, size, mtime)` and only recomputed when a file changes.
@@ -57,15 +57,16 @@ Point your manga folder at the `manga` root in `config.toml` (or pass `--manga-r
 
 ### Configuration
 
-`config.toml` (next to the executable, or in `database/`) holds the **four path roots** — each
-independently configurable and resolved relative to the executable at startup — plus runtime
-settings. See `config.example.toml` and §6.2 of the design spec.
+`config.toml` (next to the executable, or in `data/database/`) holds the **four path roots** —
+each independently configurable and resolved relative to the executable at startup — plus runtime
+settings. The data roots default under `data/` so runtime files never mix with the checkout. See
+`config.example.toml` and §6.2 of the design spec.
 
 | Root | Holds | Precious? |
 |------|-------|-----------|
-| `database` | `library.sqlite` + the secrets keyfile | ✅ back this up |
-| `cache` | `search.sqlite`, `thumbs.sqlite`, the extracted-page cache | ♻️ disposable |
-| `manga` | the archives + sidecars (`<name>.json`, `<name>.mc.json`) | ✅ source of truth |
+| `data/database` | `library.sqlite` + the secrets keyfile | ✅ back this up |
+| `data/cache` | `search.sqlite`, `thumbs.sqlite`, the extracted-page cache | ♻️ disposable |
+| `data/manga` | the archives + sidecars (`<name>.json`, `<name>.mc.json`) | ✅ source of truth |
 | `executable` | the application itself | n/a |
 
 ## Development

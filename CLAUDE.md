@@ -46,7 +46,7 @@ uv run mangacouch init             # first run: config.toml + DB + prints the ow
 uv run mangacouch serve            # run the server (UI + /api + /docs on :8000)
 uv run mangacouch scan             # one-off scan/index of the manga folder
 uv run mangacouch refresh-tags     # download EhTagTranslation db.full.json
-uv run mangacouch nuke             # wipe DB + caches + tag translations (manga/ is kept)
+uv run mangacouch nuke             # wipe DB + caches + tags + config.toml (manga/ is kept; --keep-config to spare config)
 uv run mangacouch mock --count 100 # generate mock archives for UI testing, then scan
 
 uv run ruff check .                # lint  (line-length 110, target py314)

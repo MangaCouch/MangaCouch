@@ -1,7 +1,8 @@
 # Minimal MangaCouch deployment: one container, SQLite, a single data volume.
 #
 # First run prints owner/reader credentials to the logs (`docker compose logs`). Point the bind
-# mount at where you keep your manga; everything else (database/, cache/) is created under it.
+# mount at where you keep your manga; everything else (data/database, data/cache) is created
+# under it.
 
 services:
   mangacouch:
@@ -17,6 +18,6 @@ services:
       # READER_PASSCODE: change-me-reader
       TZ: UTC
     volumes:
-      - ./data:/data            # holds config.toml + database/ + cache/ + manga/
+      - ./data:/data            # holds config.toml + data/database + data/cache + data/manga
       # Or mount an existing library directly:
-      # - /path/to/your/manga:/data/manga
+      # - /path/to/your/manga:/data/data/manga

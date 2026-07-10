@@ -1,17 +1,18 @@
 # MangaCouch configuration.
 #
 # This file lives next to the executable (or in the database root). Every path is resolved
-# relative to the executable location at startup, so the whole install — app + database/ +
-# cache/ + manga/ — relocates across machines and removable drives without edits.
+# relative to the executable location at startup, so the whole install — app + data/ —
+# relocates across machines and removable drives without edits.
 #
 # `mangacouch init` generates a real config.toml from these defaults. Copy this file to
 # config.toml to customise before first run.
 
 [paths]
 # The four configurable roots (§3.1). Relative paths are resolved against the executable dir.
-database = "database"   # library.sqlite + the secrets keyfile  — back this up
-cache     = "cache"     # search.sqlite, thumbs.sqlite, page cache — disposable/rebuildable
-manga     = "manga"     # the archives + sidecars — source of truth
+# Defaults live under data/ so runtime files never mix with the code checkout.
+database = "data/database"   # library.sqlite + the secrets keyfile  — back this up
+cache     = "data/cache"     # search.sqlite, thumbs.sqlite, page cache — disposable/rebuildable
+manga     = "data/manga"     # the archives + sidecars — source of truth
 
 [server]
 host = "127.0.0.1"
@@ -35,7 +36,8 @@ proxy_scope = "all"
 #
 # Alternatively, provide them here for first-run bootstrap. On startup any non-empty value below is
 # imported into the encrypted plugin store. They are SECRETS — after the first run you should blank
-# them out again here and keep only the encrypted copy in database/. Copy each from your browser's
+# them out again here and keep only the encrypted copy in data/database/. Copy each from your
+# browser's
 # cookies for e-hentai.org / exhentai.org:
 [acquisition.ehentai]
 ipb_member_id = ""    # cookie: ipb_member_id (login identity)

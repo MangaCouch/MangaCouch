@@ -32,7 +32,7 @@ TAGDB_FILE = "ehtags.json"
 def executable_dir() -> Path:
     """The directory the app runs from.
 
-    For a PyInstaller ``--onedir`` build this is the folder beside ``database/ cache/ manga/``;
+    For a PyInstaller ``--onedir`` build this is the folder beside ``data/``;
     for a normal install we fall back to the current working directory so ``mangacouch serve`` run
     from a project folder behaves intuitively.
     """
