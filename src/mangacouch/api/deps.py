@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from ..auth.security import Identity, Role, decode_bearer, hash_api_key
 from ..db.base import get_sessionmaker
-from ..db.models import AuthCredential, AuthSession
+from ..db.models import AppConfig, AuthCredential, AuthSession
 from ..state import AppContext
 
 # Passcode-login session tokens expire after this much inactivity; last_seen is written at most
@@ -56,13 +56,20 @@ def _extract_token(request: Request, *, allow_query: bool) -> str | None:
     return None
 
 
-def _identity_for_token(token: str | None, db: Session) -> Identity:
+def _identity_for_token(token: str | None, db: Session, *, allow_media_token: bool = False) -> Identity:
     if not token:
         return Identity(None)
     raw = decode_bearer(token)
     if not raw:
         return Identity(None)
     digest = hash_api_key(raw)
+
+    if allow_media_token:
+        # The stable media token authenticates media routes only (thumbnails/pages/OPDS),
+        # so the rotating session tokens never end up pinned inside cached image URLs.
+        row = db.get(AppConfig, "media_token_hash")
+        if row is not None and row.value == digest:
+            return Identity(Role.OWNER)
 
     cred = db.scalar(
         select(AuthCredential).where(
@@ -90,8 +97,11 @@ def current_identity(request: Request, db: Session = Depends(get_db)) -> Identit
 
 
 def current_identity_media(request: Request, db: Session = Depends(get_db)) -> Identity:
-    """Media/OPDS variant: also accepts ``?key=`` (image tags/readers can't set headers)."""
-    return _identity_for_token(_extract_token(request, allow_query=True), db)
+    """Media/OPDS variant: also accepts ``?key=`` (image tags/readers can't set headers)
+    and the long-lived media token."""
+    return _identity_for_token(
+        _extract_token(request, allow_query=True), db, allow_media_token=True
+    )
 
 
 def require_auth(identity: Identity = Depends(current_identity)) -> Identity:

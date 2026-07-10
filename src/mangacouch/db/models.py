@@ -129,20 +129,11 @@ class CategoryArchive(Base):
     )
 
 
-class FavoriteList(Base):
-    __tablename__ = "favorite_list"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    name: Mapped[str] = mapped_column(Text)
-    position: Mapped[int] = mapped_column(Integer, default=0)
-
-
 class Favorite(Base):
+    """A simple favorite flag per archive (single-user model — no lists)."""
+
     __tablename__ = "favorite"
 
-    list_id: Mapped[int] = mapped_column(
-        ForeignKey("favorite_list.id", ondelete="CASCADE"), primary_key=True
-    )
     archive_id: Mapped[str] = mapped_column(
         ForeignKey("archive.id", ondelete="CASCADE"), primary_key=True
     )

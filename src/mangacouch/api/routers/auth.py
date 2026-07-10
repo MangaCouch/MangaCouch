@@ -26,6 +26,11 @@ from ..deps import current_identity, get_context, get_db, require_auth, require_
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 FIRST_RUN_KEY = "first_run_pending"
+# Long-lived media token: session tokens rotate per login, but <img> URLs carry
+# ?key=<media token> — a stable key keeps browser/SW image caches valid across
+# logins instead of invalidating every cached thumbnail URL each unlock.
+MEDIA_TOKEN_KEY = "media_token"  # encrypted raw value (secrets.key)
+MEDIA_TOKEN_HASH_KEY = "media_token_hash"  # sha256, used for auth lookup
 
 
 class LoginRequest(BaseModel):
@@ -34,6 +39,8 @@ class LoginRequest(BaseModel):
 
 class LoginResponse(BaseModel):
     api_key: str
+    # Stable key for media URLs (?key=…) — survives re-login so image caches stay valid.
+    media_key: str
     role: str
     # Server-configured client defaults (config.toml [reader]/[auth]); the PWA seeds its
     # local preferences from these on first login and local overrides win afterwards.
@@ -109,9 +116,37 @@ def login(
         db.add(AuthSession(token_hash=hash_api_key(token), role=Role.OWNER.value))
         _throttle_reset(ip)
         _set_first_run_pending(db, False)  # a successful login ends the first-run window
-        return LoginResponse(api_key=token, role=Role.OWNER.value, defaults=_client_defaults(ctx))
+        return LoginResponse(
+            api_key=token,
+            media_key=_media_token(db, ctx),
+            role=Role.OWNER.value,
+            defaults=_client_defaults(ctx),
+        )
     _throttle_failure(ip)
     raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid passcode")
+
+
+def _media_token(db: Session, ctx: AppContext) -> str:
+    """The stable media key, minted once and returned on every login."""
+    row = db.get(AppConfig, MEDIA_TOKEN_KEY)
+    if row is not None and row.value:
+        try:
+            return ctx.secret_box.decrypt(row.value)
+        except ValueError:
+            pass  # secrets.key was replaced — mint a fresh token below
+    raw = generate_api_key()
+    encrypted = ctx.secret_box.encrypt(raw)
+    if row is None:
+        db.add(AppConfig(key=MEDIA_TOKEN_KEY, value=encrypted))
+    else:
+        row.value = encrypted
+    digest = hash_api_key(raw)
+    hash_row = db.get(AppConfig, MEDIA_TOKEN_HASH_KEY)
+    if hash_row is None:
+        db.add(AppConfig(key=MEDIA_TOKEN_HASH_KEY, value=digest))
+    else:
+        hash_row.value = digest
+    return raw
 
 
 def _purge_expired_sessions(db: Session) -> None:

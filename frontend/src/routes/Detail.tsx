@@ -157,14 +157,11 @@ function DetailContent({
                 <span>{languages.map(tagDisplay).join(', ')}</span>
               </div>
             )}
-            {(archive.love_count != null ||
-              archive.view_count != null ||
-              archive.favorite_count != null) && (
+            {(archive.love_count != null || archive.view_count != null) && (
               <div className="detail__fact">
-                <span className="detail__fact-label">♥ / ⊙ / ★</span>
+                <span className="detail__fact-label">♥ / ⊙</span>
                 <span>
-                  {archive.love_count ?? 0} / {archive.view_count ?? 0} /{' '}
-                  {archive.favorite_count ?? 0}
+                  {archive.love_count ?? 0} / {archive.view_count ?? 0}
                 </span>
               </div>
             )}

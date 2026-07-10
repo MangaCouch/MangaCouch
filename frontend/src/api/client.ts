@@ -11,6 +11,7 @@ import type { Role } from './types';
 
 const API_BASE = '/api';
 const KEY_STORAGE = 'apiKey';
+const MEDIA_KEY_STORAGE = 'mediaKey';
 const ROLE_STORAGE = 'role';
 
 /** UTF-8 safe base64 (btoa alone breaks on multibyte api keys). */
@@ -22,6 +23,9 @@ export function base64(input: string): string {
 }
 
 let apiKey: string | null = lsGetRaw(KEY_STORAGE);
+// The media key is long-lived and survives lock/re-login on purpose: it sits in
+// image URLs, and a stable URL is what keeps the browser/SW image caches valid.
+let mediaKey: string | null = lsGetRaw(MEDIA_KEY_STORAGE);
 let role: Role | null = (lsGetRaw(ROLE_STORAGE) as Role | null) ?? null;
 let onUnauthorized: (() => void) | null = null;
 
@@ -41,14 +45,19 @@ export function isOwner(): boolean {
   return role === 'owner';
 }
 
-export function setCredentials(key: string, r: Role): void {
+export function setCredentials(key: string, r: Role, media?: string): void {
   apiKey = key;
   role = r;
   lsSetRaw(KEY_STORAGE, key);
   lsSetRaw(ROLE_STORAGE, r);
+  if (media) {
+    mediaKey = media;
+    lsSetRaw(MEDIA_KEY_STORAGE, media);
+  }
 }
 
-/** Clear the stored key — used by lock / auto-lock / 401. */
+/** Clear the session key — used by lock / auto-lock / 401. The media key stays:
+ * it only authenticates media routes and keeps cached image URLs stable. */
 export function clearCredentials(): void {
   apiKey = null;
   role = null;
@@ -189,6 +198,7 @@ export function mediaUrl(
   query?: Record<string, string | number | undefined | null>,
 ): string {
   const merged: Record<string, string | number | undefined | null> = { ...query };
-  if (apiKey) merged.key = base64(apiKey);
+  const key = mediaKey ?? apiKey;
+  if (key) merged.key = base64(key);
   return buildUrl(path, merged);
 }

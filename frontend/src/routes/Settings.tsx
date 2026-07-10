@@ -251,7 +251,14 @@ function AdminActions() {
           type="button"
           className="btn"
           disabled={busy !== null}
-          onClick={() => run(t('settings.regen'), regenThumbnails)}
+          onClick={() =>
+            run(t('settings.regen'), async () => {
+              await regenThumbnails();
+              // Thumbnails are served CacheFirst by the SW — drop the cache so the
+              // regenerated images (same URLs, new bytes) actually show up.
+              if ('caches' in window) await caches.delete('mc-thumbnails');
+            })
+          }
         >
           {busy === t('settings.regen') ? '…' : t('settings.regen')}
         </button>

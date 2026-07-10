@@ -70,12 +70,7 @@ def serialize_archive(
         "view_count": arch.view_count,
     }
     if db is not None:
-        favorite_count = int(
-            db.scalar(select(func.count()).select_from(Favorite).where(Favorite.archive_id == arch.id))
-            or 0
-        )
-        data["favorite_count"] = favorite_count
-        data["favorite"] = favorite_count > 0
+        data["favorite"] = db.get(Favorite, arch.id) is not None
     if detail:
         data["comments"] = serialize_comments(arch)
     return data

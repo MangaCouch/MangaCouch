@@ -20,15 +20,16 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
         runtimeCaching: [
           {
-            // Thumbnails: serve instantly from cache but refresh in the
-            // background, so "Regenerate thumbnails" (same URL, new bytes)
-            // propagates instead of being pinned for 30 days by CacheFirst.
+            // Thumbnails are content-addressed (archive id = content hash) and the
+            // media key in the URL is long-lived, so URLs are stable — CacheFirst
+            // makes refreshes render instantly with zero network. "Regenerate
+            // thumbnails" explicitly clears this cache (Settings → Library).
             urlPattern: /\/api\/archives\/.*\/thumbnail.*/,
-            handler: 'StaleWhileRevalidate',
+            handler: 'CacheFirst',
             options: {
               cacheName: 'mc-thumbnails',
-              expiration: { maxEntries: 2000, maxAgeSeconds: 60 * 60 * 24 * 30 },
-              cacheableResponse: { statuses: [0, 200] },
+              expiration: { maxEntries: 5000, maxAgeSeconds: 60 * 60 * 24 * 90 },
+              cacheableResponse: { statuses: [200] },
             },
           },
         ],

@@ -23,6 +23,8 @@ export interface ClientDefaults {
 
 export interface LoginResponse {
   api_key: string;
+  /** Long-lived key for media (?key=) URLs; stable across logins. */
+  media_key: string;
   role: Role;
   defaults?: ClientDefaults;
 }
@@ -68,7 +70,6 @@ export interface Archive {
   /** Engagement counts (best-effort; may be absent). */
   love_count?: number | null;
   view_count?: number | null;
-  favorite_count?: number | null;
   /** Simple favorite flag (detail responses only). */
   favorite?: boolean;
   /** Source-site gallery comments. */
@@ -114,14 +115,6 @@ export interface Category {
   type: 'static' | 'dynamic';
   predicate?: string | null;
   pinned?: boolean;
-}
-
-export interface FavoriteList {
-  id: string;
-  name: string;
-  position?: number;
-  /** IDs of archives in this list, if the server includes them. */
-  archive_ids?: string[];
 }
 
 export type DownloadJobState =

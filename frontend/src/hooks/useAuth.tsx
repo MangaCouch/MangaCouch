@@ -102,7 +102,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (passcode: string) => {
     const res = await loginRequest(passcode);
-    setCredentials(res.api_key, res.role);
+    setCredentials(res.api_key, res.role, res.media_key);
     seedClientDefaults(res.defaults);
     setRole(res.role);
     setUnlocked(true);

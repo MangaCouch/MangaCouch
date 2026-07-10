@@ -173,7 +173,7 @@ def test_upload_zip(env: Env, sample_pages, tmp_path):
     assert r.json()["archive_id"]
 
 
-def test_categories_and_favorites(env: Env):
+def test_categories(env: Env):
     h = _bearer(env.owner_key)
     cat = env.client.post(
         "/api/categories", json={"name": "Faves", "type": "static"}, headers=h
@@ -183,11 +183,6 @@ def test_categories_and_favorites(env: Env):
         "/api/archives", params={"category": cat["id"]}, headers=h
     ).json()
     assert listed["total"] == 1
-
-    fl = env.client.post("/api/favorites/lists", json={"name": "Best"}, headers=h).json()
-    env.client.put(f"/api/favorites/{fl['id']}/{env.archive_id}", headers=h)
-    lists = env.client.get("/api/favorites/lists", headers=h).json()["lists"]
-    assert env.archive_id in lists[0]["archive_ids"]
 
 
 def test_plugins_listed(env: Env):
@@ -441,3 +436,18 @@ def test_passcode_generator_mixes_classes():
         assert any(c.isdigit() for c in code)
         assert any(c.isupper() for c in code)
         assert any(c.islower() for c in code)
+
+
+def test_login_returns_stable_media_key(env: Env):
+    """The media key must be identical across logins so cached image URLs stay valid."""
+    r1 = env.client.post("/api/auth/login", json={"passcode": "ownerpass"}).json()
+    r2 = env.client.post("/api/auth/login", json={"passcode": "ownerpass"}).json()
+    assert r1["media_key"] == r2["media_key"]
+    assert r1["api_key"] != r2["api_key"]  # sessions still rotate
+
+    # The media key authenticates media routes...
+    key = base64.b64encode(r1["media_key"].encode()).decode()
+    thumb = env.client.get(f"/api/archives/{env.archive_id}/thumbnail", params={"key": key})
+    assert thumb.status_code == 200
+    # ...but NOT ordinary API routes (it must never grant full API access).
+    assert env.client.get("/api/archives", headers=_bearer(r1["media_key"])).status_code == 401

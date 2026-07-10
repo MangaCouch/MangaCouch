@@ -25,9 +25,10 @@
   --radius: 12px;
   --radius-sm: 8px;
   --nav-h: 56px;
-  /* One shared font stack: SF Pro on Apple platforms, best native sans elsewhere,
-     with CJK fallbacks — applied to every control so all pages read the same. */
-  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', system-ui, 'Segoe UI',
+  /* One shared font stack: self-hosted Inter (variable, bundled — no CDN/system
+     dependency) with native CJK fallbacks — applied to every control so all
+     pages read the same on every platform. */
+  --font-sans: 'Inter Variable', 'Inter', system-ui, -apple-system, 'Segoe UI',
     Roboto, 'Helvetica Neue', 'Noto Sans', 'Noto Sans CJK SC', 'PingFang SC',
     'Microsoft YaHei', sans-serif;
   /* Frosted-glass tokens (Apple-style translucent chrome). */

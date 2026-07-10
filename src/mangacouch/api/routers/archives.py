@@ -370,20 +370,7 @@ def set_progress(
     return {"archive_id": archive_id, "page": prog.page, "page_count": arch.page_count}
 
 
-# -- favorite (simple boolean; stored as membership of one implicit default list) ---------------
-
-_DEFAULT_FAVORITES = "Favorites"
-
-
-def _default_favorite_list(db: Session):
-    from ...db.models import FavoriteList
-
-    fl = db.scalar(select(FavoriteList).order_by(FavoriteList.position, FavoriteList.id).limit(1))
-    if fl is None:
-        fl = FavoriteList(name=_DEFAULT_FAVORITES, position=0)
-        db.add(fl)
-        db.flush()
-    return fl
+# -- favorite (a simple per-archive flag) --------------------------------------------------------
 
 
 @router.put("/archives/{archive_id}/favorite")
@@ -395,9 +382,8 @@ def set_favorite(
     from ...db.models import Favorite
 
     _load(db, archive_id)
-    fl = _default_favorite_list(db)
-    if db.get(Favorite, {"list_id": fl.id, "archive_id": archive_id}) is None:
-        db.add(Favorite(list_id=fl.id, archive_id=archive_id))
+    if db.get(Favorite, archive_id) is None:
+        db.add(Favorite(archive_id=archive_id))
     return {"archive_id": archive_id, "favorite": True}
 
 
@@ -407,11 +393,11 @@ def unset_favorite(
     _: object = Depends(require_auth),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
-    from sqlalchemy import delete as sql_delete
-
     from ...db.models import Favorite
 
-    db.execute(sql_delete(Favorite).where(Favorite.archive_id == archive_id))
+    fav = db.get(Favorite, archive_id)
+    if fav is not None:
+        db.delete(fav)
     return {"archive_id": archive_id, "favorite": False}
 
 
