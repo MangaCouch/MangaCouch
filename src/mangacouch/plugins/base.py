@@ -128,10 +128,21 @@ class MetadataContext:
 
 
 @dataclass(slots=True)
+class MetadataComment:
+    """A gallery comment fetched from the source site."""
+
+    username: str = ""
+    posted: int | None = None  # unix seconds
+    content: str = ""
+
+
+@dataclass(slots=True)
 class MetadataResult:
     tags: list[str] = field(default_factory=list)  # "namespace:value"
     title: str | None = None
     summary: str | None = None
+    rating: float | None = None  # source-site average rating (e.g. e-hentai stars)
+    comments: list[MetadataComment] = field(default_factory=list)
     error: str | None = None
 
 

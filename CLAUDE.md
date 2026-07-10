@@ -10,8 +10,9 @@ full requirements wishlist (P0–P2), and deep e-hentai protocol notes. This fil
 - **Language/runtime:** Python 3.14, managed with **uv**.
 - **Web:** FastAPI + Uvicorn (auto OpenAPI at `/docs`), serving the React PWA as static assets.
 - **DB:** embedded SQLite via SQLAlchemy 2 (+ Alembic). Three SQLite files: `library.sqlite`
-  (authoritative, in `database/`), `search.sqlite` (FTS5 trigram index) and `thumbs.sqlite`
-  (thumbnail blob store) — both rebuildable, in `cache/`.
+  (authoritative, in `data/database/`), `search.sqlite` (FTS5 trigram index) and `thumbs.sqlite`
+  (thumbnail blob store) — both rebuildable, in `data/cache/`. Default roots live under `data/`
+  so runtime files never mix with the checkout. Auth is single-user (one owner passcode).
 - **Images:** pyvips (`pyvips[binary]`) — the only image library, no Pillow. PDFs via pypdfium2,
   bridged to pyvips through numpy.
 - **Hashing:** xxhash (xxh3-128). **Auth:** argon2-cffi + cryptography (Fernet). **HTTP:** httpx
@@ -41,10 +42,12 @@ alembic/  tests/  frontend/  extension/  packaging/  docker/  plugins/
 
 ```bash
 uv sync --dev                      # install (verified cp314 wheel set, no source builds)
-uv run mangacouch init             # first run: config.toml + DB + prints owner/reader credentials
+uv run mangacouch init             # first run: config.toml + DB + prints the owner credentials
 uv run mangacouch serve            # run the server (UI + /api + /docs on :8000)
 uv run mangacouch scan             # one-off scan/index of the manga folder
 uv run mangacouch refresh-tags     # download EhTagTranslation db.full.json
+uv run mangacouch nuke             # wipe DB + caches + tag translations (manga/ is kept)
+uv run mangacouch mock --count 100 # generate mock archives for UI testing, then scan
 
 uv run ruff check .                # lint  (line-length 110, target py314)
 uv run pyright                     # type-check (must be 0 errors)

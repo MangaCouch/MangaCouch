@@ -19,11 +19,13 @@ from ...auth.security import (
     hash_passcode,
     verify_passcode,
 )
-from ...db.models import AuthCredential, AuthSession
+from ...db.models import AppConfig, AuthCredential, AuthSession
 from ...state import AppContext
-from ..deps import current_identity, get_context, get_db, require_owner, require_reader
+from ..deps import current_identity, get_context, get_db, require_auth, require_owner
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+FIRST_RUN_KEY = "first_run_pending"
 
 
 class LoginRequest(BaseModel):
@@ -100,15 +102,14 @@ def login(
 ) -> LoginResponse:
     ip = request.client.host if request.client else "unknown"
     _throttle_check(ip)
-    # Owner is checked first so a shared owner/reader passcode resolves to the higher role.
-    for role in (Role.OWNER, Role.READER):
-        cred = db.get(AuthCredential, role.value)
-        if cred and cred.enabled and verify_passcode(cred.passcode_hash, body.passcode):
-            _purge_expired_sessions(db)
-            token = generate_api_key()
-            db.add(AuthSession(token_hash=hash_api_key(token), role=role.value))
-            _throttle_reset(ip)
-            return LoginResponse(api_key=token, role=role.value, defaults=_client_defaults(ctx))
+    cred = db.get(AuthCredential, Role.OWNER.value)
+    if cred and cred.enabled and verify_passcode(cred.passcode_hash, body.passcode):
+        _purge_expired_sessions(db)
+        token = generate_api_key()
+        db.add(AuthSession(token_hash=hash_api_key(token), role=Role.OWNER.value))
+        _throttle_reset(ip)
+        _set_first_run_pending(db, False)  # a successful login ends the first-run window
+        return LoginResponse(api_key=token, role=Role.OWNER.value, defaults=_client_defaults(ctx))
     _throttle_failure(ip)
     raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid passcode")
 
@@ -140,7 +141,7 @@ def _client_defaults(ctx: AppContext) -> dict:
 
 
 @router.post("/logout")
-def logout(request: Request, _: Identity = Depends(require_reader), db: Session = Depends(get_db)):
+def logout(request: Request, _: Identity = Depends(require_auth), db: Session = Depends(get_db)):
     auth = request.headers.get("Authorization", "")
     token = auth[7:].strip() if auth.lower().startswith("bearer ") else request.query_params.get("key")
     if token:
@@ -151,9 +152,8 @@ def logout(request: Request, _: Identity = Depends(require_reader), db: Session 
 
 
 class ChangePasscodeRequest(BaseModel):
-    role: str = "owner"  # which credential to change: "owner" | "reader"
     new_passcode: str
-    current_passcode: str | None = None  # required when changing the OWNER passcode
+    current_passcode: str | None = None  # confirming the current passcode is required
 
 
 @router.post("/passcode")
@@ -162,28 +162,19 @@ def change_passcode(
     _: Identity = Depends(require_owner),
     db: Session = Depends(get_db),
 ) -> dict:
-    """Owner-only: change the owner or reader passcode. The long-lived API key is unaffected."""
-    role = body.role.lower()
-    if role not in ("owner", "reader"):
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "role must be owner|reader")
+    """Owner-only: change the owner passcode. The long-lived API key is unaffected."""
     if len(body.new_passcode) < 4:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "passcode must be at least 4 characters")
 
-    owner = db.get(AuthCredential, "owner")
-    # Changing the owner passcode requires confirming the current one (defence in depth).
-    if role == "owner" and not (
-        owner and verify_passcode(owner.passcode_hash, body.current_passcode or "")
-    ):
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "current owner passcode is incorrect")
+    owner = db.get(AuthCredential, Role.OWNER.value)
+    # Changing the passcode requires confirming the current one (defence in depth).
+    if not (owner and verify_passcode(owner.passcode_hash, body.current_passcode or "")):
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "current passcode is incorrect")
 
-    cred = db.get(AuthCredential, role)
-    if cred is None:
-        cred = AuthCredential(role=role, enabled=True)
-        db.add(cred)
-    cred.passcode_hash = hash_passcode(body.new_passcode)
-    cred.enabled = True
+    owner.passcode_hash = hash_passcode(body.new_passcode)
+    owner.enabled = True
     # Existing login sessions stay valid; only the passcode used for future logins changed.
-    return {"ok": True, "role": role}
+    return {"ok": True, "role": Role.OWNER.value}
 
 
 @router.get("/me")
@@ -194,12 +185,51 @@ def me(identity: Identity = Depends(current_identity)) -> dict:
     }
 
 
+def _first_run_pending(db: Session) -> bool:
+    row = db.get(AppConfig, FIRST_RUN_KEY)
+    return bool(row and row.value == "true")
+
+
+def _set_first_run_pending(db: Session, pending: bool) -> None:
+    row = db.get(AppConfig, FIRST_RUN_KEY)
+    if row is None:
+        db.add(AppConfig(key=FIRST_RUN_KEY, value="true" if pending else "false"))
+    else:
+        row.value = "true" if pending else "false"
+
+
 @router.get("/status")
 def auth_status(db: Session = Depends(get_db)) -> dict:
     """Whether credentials have been provisioned (so the UI can show a first-run hint)."""
-    owner = db.scalar(select(AuthCredential).where(AuthCredential.role == "owner"))
-    reader = db.scalar(select(AuthCredential).where(AuthCredential.role == "reader"))
+    owner = db.scalar(select(AuthCredential).where(AuthCredential.role == Role.OWNER.value))
     return {
         "owner_configured": bool(owner and owner.passcode_hash),
-        "reader_configured": bool(reader and reader.passcode_hash),
+        "first_run": _first_run_pending(db),
     }
+
+
+class FirstRunChoice(BaseModel):
+    regenerate: bool = False
+
+
+@router.post("/first-run")
+def first_run_choice(body: FirstRunChoice, db: Session = Depends(get_db)) -> dict:
+    """First-run only (e.g. Docker, no terminal access): keep the provisioned passcode or mint a
+    new one shown once in the browser. Unauthenticated by design, but only until the first
+    successful login — the window closes as soon as anyone logs in or makes a choice here."""
+    if not _first_run_pending(db):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "first-run window is closed")
+    _set_first_run_pending(db, False)
+    if not body.regenerate:
+        return {"ok": True, "regenerated": False}
+    from ...cli import friendly_passcode
+
+    passcode = friendly_passcode()
+    cred = db.get(AuthCredential, Role.OWNER.value)
+    if cred is None:
+        cred = AuthCredential(role=Role.OWNER.value)
+        db.add(cred)
+    cred.passcode_hash = hash_passcode(passcode)
+    cred.enabled = True
+    # Shown exactly once in the browser; only the hash is stored.
+    return {"ok": True, "regenerated": True, "passcode": passcode}

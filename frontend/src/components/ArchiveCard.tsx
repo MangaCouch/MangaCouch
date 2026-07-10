@@ -13,8 +13,8 @@ import { t } from '../i18n/strings';
 const CHIP_NAMESPACES = ['artist', 'group', 'parody', 'series', 'language'];
 
 export const ArchiveCard = memo(function ArchiveCard({ archive }: { archive: Archive }) {
-  const read = isRead(archive.progress, archive.page_count);
-  const frac = progressFraction(archive.progress, archive.page_count);
+  const read = isRead(archive);
+  const frac = progressFraction(archive);
   const chips = archive.tags
     .filter((tag) => CHIP_NAMESPACES.includes(tag.namespace))
     .slice(0, 3);

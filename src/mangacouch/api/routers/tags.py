@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from ...db.models import ArchiveTag, Tag
 from ...state import AppContext
-from ..deps import get_context, get_db, require_reader
+from ..deps import get_context, get_db, require_auth
 
 router = APIRouter(prefix="/api/tags", tags=["tags"])
 
@@ -17,7 +17,7 @@ router = APIRouter(prefix="/api/tags", tags=["tags"])
 def tag_stats(
     namespace: str | None = None,
     limit: int = Query(200, ge=1, le=2000),
-    _: object = Depends(require_reader),
+    _: object = Depends(require_auth),
     ctx: AppContext = Depends(get_context),
     db: Session = Depends(get_db),
 ) -> dict:
@@ -48,7 +48,7 @@ def tag_stats(
 def translate(
     ns: str,
     value: str,
-    _: object = Depends(require_reader),
+    _: object = Depends(require_auth),
     ctx: AppContext = Depends(get_context),
 ) -> dict:
     return {"namespace": ns, "value": value, "translated": ctx.translator.display(ns, value)}

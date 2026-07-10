@@ -5,7 +5,7 @@
 // documented inline so the backend can match it. Fields are kept permissive
 // (many optional) because the backend is still under construction.
 
-export type Role = 'owner' | 'reader';
+export type Role = 'owner';
 
 /** Server-configured client defaults (config.toml [reader]/[auth]) sent with login.
  * Used only to seed local preferences that the user has never set. */
@@ -35,6 +35,14 @@ export interface Tag {
   translated?: string | null;
 }
 
+/** Reading progress as serialized by the backend (serialization.py). */
+export interface Progress {
+  /** Last-read page (0-based). */
+  page: number;
+  /** page / page_count clamped to [0, 1]. */
+  percent: number;
+}
+
 /**
  * An archive (one manga/gallery). Mirrors the `archive` table plus joined
  * tags and progress. `id` is the xxh3-128 hex content hash.
@@ -53,15 +61,17 @@ export interface Archive {
   source_gid?: number | string | null;
   source_token?: string | null;
   tags: Tag[];
-  /** Last-read page (0-based) from the `progress` table for this credential. */
-  progress?: number | null;
-  /** ISO timestamp of last progress update. */
-  progress_updated_at?: string | null;
+  /** Reading progress object (`{page, percent}`) from the `progress` table. */
+  progress?: Progress | null;
+  /** Server-computed "read" flag (progress.percent > 0.85). */
+  read?: boolean;
   /** Engagement counts (best-effort; may be absent). */
   love_count?: number | null;
-  read_count?: number | null;
+  view_count?: number | null;
   favorite_count?: number | null;
-  /** e-hentai gallery comments. */
+  /** Simple favorite flag (detail responses only). */
+  favorite?: boolean;
+  /** Source-site gallery comments. */
   comments?: Comment[];
 }
 
@@ -188,6 +198,8 @@ export interface RunPluginResponse {
   title_applied: boolean;
   new_title?: string | null;
   added_tags: string[];
+  rating?: number | null;
+  comment_count?: number;
   archive: Archive;
 }
 

@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from ...acquisition.client import build_client
 from ...plugins.base import MetadataContext, MetadataPlugin, PluginError
 from ...state import AppContext
-from ..deps import get_context, get_db, require_owner, require_reader
+from ..deps import get_context, get_db, require_auth, require_owner
 
 router = APIRouter(prefix="/api/plugins", tags=["plugins"])
 
@@ -24,7 +24,7 @@ _SECRET_MASK = "••••••••"
 
 @router.get("")
 def list_plugins(
-    _: object = Depends(require_reader), ctx: AppContext = Depends(get_context)
+    _: object = Depends(require_auth), ctx: AppContext = Depends(get_context)
 ) -> dict[str, Any]:
     out = []
     for info in ctx.registry.all_info():
@@ -132,6 +132,10 @@ def run_metadata_plugin(
         title_applied = True
     if result.summary and not arch.summary:
         arch.summary = result.summary
+    if result.rating is not None:
+        arch.rating = result.rating
+    if result.comments:
+        _replace_comments(db, arch.id, result.comments)
 
     db.flush()
     db.refresh(arch)
@@ -147,8 +151,31 @@ def run_metadata_plugin(
         "title_applied": title_applied,
         "new_title": result.title,
         "added_tags": sorted(set(tag_strings) - set(existing)),
+        "rating": result.rating,
+        "comment_count": len(result.comments),
         "archive": serialize_archive(arch, ctx.translator, db=db, detail=True),
     }
+
+
+def _replace_comments(db: Session, archive_id: str, comments) -> None:
+    """Fetched comments replace the stored set (the source site is authoritative)."""
+    from datetime import UTC, datetime
+
+    from sqlalchemy import delete
+
+    from ...db.models import Comment
+
+    db.execute(delete(Comment).where(Comment.archive_id == archive_id))
+    for c in comments:
+        posted = datetime.fromtimestamp(c.posted, tz=UTC) if c.posted else None
+        db.add(
+            Comment(
+                archive_id=archive_id,
+                username=c.username[:128],
+                posted_at=posted,
+                content=c.content,
+            )
+        )
 
 
 def _plugin_session(ctx: AppContext, login_from: str | None):

@@ -18,7 +18,7 @@ from ...acquisition.ehentai import (
 )
 from ...db.models import DownloadJob
 from ...state import AppContext
-from ..deps import get_context, get_db, require_owner, require_reader
+from ..deps import get_context, get_db, require_auth, require_owner
 
 router = APIRouter(prefix="/api", tags=["downloads"])
 
@@ -92,7 +92,7 @@ def create_download(
 def list_jobs(
     state: str | None = None,
     limit: int = 100,
-    _: object = Depends(require_reader),
+    _: object = Depends(require_auth),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     stmt = select(DownloadJob).order_by(DownloadJob.created_at.desc()).limit(limit)
@@ -103,7 +103,7 @@ def list_jobs(
 
 @router.get("/job/{job_id}")
 def get_job(
-    job_id: int, _: object = Depends(require_reader), db: Session = Depends(get_db)
+    job_id: int, _: object = Depends(require_auth), db: Session = Depends(get_db)
 ) -> dict[str, Any]:
     job = db.get(DownloadJob, job_id)
     if job is None:

@@ -234,8 +234,8 @@ class DownloadWorker:
             site=meta.get("domain"),
             source_url=source_url,
         )
-        # Enrich via the Metadata plugin (tags/title) where available.
-        self._enrich(gallery, source_url, session_http, login_from, final)
+        # Enrich via the Metadata plugin (tags/title/rating/comments) where available.
+        comments = self._enrich(gallery, source_url, session_http, login_from, final)
 
         sidecars.write_eze(final, gallery)
         sidecars.write_mc(
@@ -262,7 +262,30 @@ class DownloadWorker:
         archive_id = self.ingestor.index_file(final)
         if archive_id and catid is not None:
             self._link_category(archive_id, catid)
+        if archive_id and comments:
+            self._store_comments(archive_id, comments)
         return archive_id
+
+    def _store_comments(self, archive_id: str, comments: list) -> None:
+        from datetime import UTC as _UTC
+        from datetime import datetime as _dt
+
+        from sqlalchemy import delete
+
+        from ..db.models import Comment
+
+        with session_scope() as session:
+            session.execute(delete(Comment).where(Comment.archive_id == archive_id))
+            for c in comments:
+                posted = _dt.fromtimestamp(c.posted, tz=_UTC) if c.posted else None
+                session.add(
+                    Comment(
+                        archive_id=archive_id,
+                        username=c.username[:128],
+                        posted_at=posted,
+                        content=c.content,
+                    )
+                )
 
     def _link_category(self, archive_id: str, catid: int) -> None:
         """Honour the job's "download into category" request once ingest is done."""
@@ -279,7 +302,8 @@ class DownloadWorker:
             if exists is None:
                 session.add(CategoryArchive(category_id=catid, archive_id=archive_id))
 
-    def _enrich(self, gallery, source_url, session_http, login_from, path) -> None:
+    def _enrich(self, gallery, source_url, session_http, login_from, path) -> list:
+        """Fill title/tags/rating on ``gallery`` in place; returns fetched comments (if any)."""
         from ..plugins.base import MetadataPlugin, PluginType
 
         for plugin in self.registry.of_type(PluginType.METADATA):
@@ -309,7 +333,10 @@ class DownloadWorker:
                 gallery.title = result.title
             if result.tags:
                 gallery.tags = result.tags
-            break
+            if result.rating is not None:
+                gallery.rating = result.rating
+            return list(result.comments)
+        return []
 
     # -- session cache ------------------------------------------------------------------------
 

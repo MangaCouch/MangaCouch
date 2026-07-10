@@ -20,7 +20,8 @@ import { useTheme } from '../hooks/useTheme';
 import { AUTOLOCK_KEY } from '../hooks/useAuth';
 import { lsGet, lsSet } from '../lib/storage';
 import { Spinner, ErrorBanner, Collapsible } from '../components/ui';
-import { t } from '../i18n/strings';
+import { toast } from '../components/Toast';
+import { getLocale, setLocale, t, type Locale } from '../i18n/strings';
 
 const PLUGIN_TYPE_ORDER = ['metadata', 'download', 'login', 'script'] as const;
 
@@ -85,10 +86,18 @@ export function Settings() {
 function AppearancePanel() {
   const { theme, setTheme } = useTheme();
   const [autolock, setAutolock] = useState<number>(() => lsGet<number>(AUTOLOCK_KEY, 0));
+  const [locale, setLocaleState] = useState<Locale>(() => getLocale());
 
   const onAutolock = useCallback((minutes: number) => {
     setAutolock(minutes);
     lsSet(AUTOLOCK_KEY, minutes);
+  }, []);
+
+  const onLocale = useCallback((next: Locale) => {
+    setLocaleState(next);
+    setLocale(next);
+    // Every t() call site re-evaluates on reload; simplest correct refresh.
+    window.location.reload();
   }, []);
 
   return (
@@ -113,6 +122,18 @@ function AppearancePanel() {
         </div>
       </div>
       <div className="field-row">
+        <label className="settings__label">{t('settings.language')}</label>
+        <select
+          className="select"
+          value={locale}
+          onChange={(e) => onLocale(e.target.value as Locale)}
+          aria-label={t('settings.language')}
+        >
+          <option value="en">English</option>
+          <option value="zh-Hans">简体中文</option>
+        </select>
+      </div>
+      <div className="field-row">
         <label className="settings__label">{t('settings.autolock')}</label>
         <select
           className="select"
@@ -133,133 +154,82 @@ function AppearancePanel() {
 
 function SecurityPanel() {
   const [currentPass, setCurrentPass] = useState('');
-  const [ownerNew, setOwnerNew] = useState('');
-  const [ownerConfirm, setOwnerConfirm] = useState('');
-  const [readerNew, setReaderNew] = useState('');
-  const [readerConfirm, setReaderConfirm] = useState('');
-  const [msg, setMsg] = useState<string | null>(null);
+  const [nextPass, setNextPass] = useState('');
+  const [confirmPass, setConfirmPass] = useState('');
   const [busy, setBusy] = useState(false);
 
-  const submit = useCallback(
-    async (role: 'owner' | 'reader', next: string, confirm: string, current?: string) => {
-      setMsg(null);
-      if (next.length < 4) {
-        setMsg('New passcode must be at least 4 characters.');
-        return;
-      }
-      if (next !== confirm) {
-        setMsg('The two new-passcode fields do not match.');
-        return;
-      }
-      setBusy(true);
-      try {
-        await changePasscode(role, next, current);
-        setMsg(`${role} passcode changed.`);
-        setCurrentPass('');
-        setOwnerNew('');
-        setOwnerConfirm('');
-        setReaderNew('');
-        setReaderConfirm('');
-      } catch (err) {
-        setMsg(err instanceof Error ? err.message : String(err));
-      } finally {
-        setBusy(false);
-      }
-    },
-    [],
-  );
+  const submit = useCallback(async () => {
+    if (nextPass.length < 4) {
+      toast.error(t('settings.passcode.tooShort'));
+      return;
+    }
+    if (nextPass !== confirmPass) {
+      toast.error(t('settings.passcode.mismatch'));
+      return;
+    }
+    setBusy(true);
+    try {
+      await changePasscode(nextPass, currentPass);
+      toast.success(t('settings.passcode.changed'));
+      setCurrentPass('');
+      setNextPass('');
+      setConfirmPass('');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }, [nextPass, confirmPass, currentPass]);
 
   return (
-    <>
-      <div className="settings__columns">
-        <div>
-          <h3 className="settings__subhead">Owner passcode</h3>
-          <form
-            className="settings__form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              submit('owner', ownerNew, ownerConfirm, currentPass);
-            }}
-          >
-            <input
-              type="password"
-              autoComplete="current-password"
-              placeholder="Current owner passcode"
-              aria-label="Current owner passcode"
-              value={currentPass}
-              onChange={(e) => setCurrentPass(e.target.value)}
-            />
-            <input
-              type="password"
-              autoComplete="new-password"
-              placeholder="New owner passcode"
-              aria-label="New owner passcode"
-              value={ownerNew}
-              onChange={(e) => setOwnerNew(e.target.value)}
-            />
-            <input
-              type="password"
-              autoComplete="new-password"
-              placeholder="Confirm new passcode"
-              aria-label="Confirm new passcode"
-              value={ownerConfirm}
-              onChange={(e) => setOwnerConfirm(e.target.value)}
-            />
-            <button type="submit" className="btn btn--primary" disabled={busy}>
-              {busy ? '…' : 'Update owner passcode'}
-            </button>
-          </form>
-        </div>
-
-        <div>
-          <h3 className="settings__subhead">Reader passcode (shared, read-only)</h3>
-          <form
-            className="settings__form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              submit('reader', readerNew, readerConfirm);
-            }}
-          >
-            <input
-              type="password"
-              autoComplete="new-password"
-              placeholder="New reader passcode"
-              aria-label="New reader passcode"
-              value={readerNew}
-              onChange={(e) => setReaderNew(e.target.value)}
-            />
-            <input
-              type="password"
-              autoComplete="new-password"
-              placeholder="Confirm new passcode"
-              aria-label="Confirm new passcode"
-              value={readerConfirm}
-              onChange={(e) => setReaderConfirm(e.target.value)}
-            />
-            <button type="submit" className="btn" disabled={busy}>
-              {busy ? '…' : 'Update reader passcode'}
-            </button>
-          </form>
-        </div>
-      </div>
-
-      {msg && <div className="settings__msg">{msg}</div>}
-    </>
+    <form
+      className="settings__form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        submit();
+      }}
+    >
+      <input
+        type="password"
+        autoComplete="current-password"
+        placeholder={t('settings.passcode.current')}
+        aria-label={t('settings.passcode.current')}
+        value={currentPass}
+        onChange={(e) => setCurrentPass(e.target.value)}
+      />
+      <input
+        type="password"
+        autoComplete="new-password"
+        placeholder={t('settings.passcode.new')}
+        aria-label={t('settings.passcode.new')}
+        value={nextPass}
+        onChange={(e) => setNextPass(e.target.value)}
+      />
+      <input
+        type="password"
+        autoComplete="new-password"
+        placeholder={t('settings.passcode.confirm')}
+        aria-label={t('settings.passcode.confirm')}
+        value={confirmPass}
+        onChange={(e) => setConfirmPass(e.target.value)}
+      />
+      <button type="submit" className="btn btn--primary" disabled={busy}>
+        {busy ? '…' : t('settings.passcode.update')}
+      </button>
+    </form>
   );
 }
 
 function AdminActions() {
-  const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
   const run = useCallback(async (label: string, fn: () => Promise<unknown>) => {
     setBusy(label);
-    setMsg(null);
     try {
       await fn();
-      setMsg(`${label}: started.`);
+      toast.success(`${label}: ${t('settings.started')}`);
     } catch (err) {
-      setMsg(`${label}: ${err instanceof Error ? err.message : String(err)}`);
+      toast.error(`${label}: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setBusy(null);
     }
@@ -295,25 +265,23 @@ function AdminActions() {
           {busy === t('settings.prewarm') ? '…' : t('settings.prewarm')}
         </button>
       </div>
-      {msg && <div className="settings__msg">{msg}</div>}
+      {busy && <Spinner label={busy} />}
     </div>
   );
 }
 
 function UploadPanel() {
   const [progress, setProgress] = useState<number | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   const onFile = useCallback(async (file: File) => {
     setProgress(0);
-    setMsg(null);
     try {
-      const res = await uploadArchive(file, (f) => setProgress(f));
+      await uploadArchive(file, (f) => setProgress(f));
       setProgress(1);
-      setMsg(res.id ? `Uploaded (id ${res.id}).` : 'Uploaded.');
+      toast.success(t('settings.uploaded'));
     } catch (err) {
-      setMsg(err instanceof Error ? err.message : String(err));
+      toast.error(err instanceof Error ? err.message : String(err));
     } finally {
       setTimeout(() => setProgress(null), 800);
       if (inputRef.current) inputRef.current.value = '';
@@ -337,7 +305,6 @@ function UploadPanel() {
           <div className="upload__bar" style={{ width: `${progress * 100}%` }} />
         </div>
       )}
-      {msg && <div className="settings__msg">{msg}</div>}
     </div>
   );
 }
@@ -368,10 +335,10 @@ function ConfigPanel() {
     setSaveMsg(null);
     try {
       await updateConfig(parsed);
-      setSaveMsg('Saved.');
+      toast.success(t('settings.saved'));
       reload();
     } catch (err) {
-      setSaveMsg(err instanceof Error ? err.message : String(err));
+      toast.error(err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
     }
@@ -484,7 +451,6 @@ function PluginConfigForm({ plugin, onSaved }: { plugin: PluginInfo; onSaved: ()
 
   const [values, setValues] = useState<Record<string, string>>(initial);
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
 
   // Re-sync when the plugin list reloads (e.g. after a save).
   useEffect(() => setValues(initial()), [initial]);
@@ -493,14 +459,13 @@ function PluginConfigForm({ plugin, onSaved }: { plugin: PluginInfo; onSaved: ()
     async (e: FormEvent) => {
       e.preventDefault();
       setBusy(true);
-      setMsg(null);
       try {
         // Unchanged secrets are still the mask; the backend ignores those.
         await setPluginConfig(plugin.namespace, values);
-        setMsg('Saved.');
+        toast.success(t('settings.saved'));
         onSaved();
       } catch (err) {
-        setMsg(err instanceof Error ? err.message : String(err));
+        toast.error(err instanceof Error ? err.message : String(err));
       } finally {
         setBusy(false);
       }
@@ -562,9 +527,8 @@ function PluginConfigForm({ plugin, onSaved }: { plugin: PluginInfo; onSaved: ()
       })}
       <div className="settings__actions">
         <button type="submit" className="btn btn--primary" disabled={busy}>
-          {busy ? '…' : 'Save'}
+          {busy ? '…' : t('common.save')}
         </button>
-        {msg && <span className="settings__msg">{msg}</span>}
       </div>
     </form>
   );

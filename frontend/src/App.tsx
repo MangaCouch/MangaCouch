@@ -9,6 +9,7 @@ import { Layout } from './components/Layout';
 import { LockScreen } from './routes/LockScreen';
 import { Library } from './routes/Library';
 import { Spinner } from './components/ui';
+import { Toaster } from './components/Toast';
 
 // Reader and owner views are code-split: the library is the common entry, and
 // the reader pulls in its heavier view logic only when actually reading.
@@ -72,6 +73,7 @@ export default function App() {
       <BrowserRouter>
         <AuthProvider>
           <AuthedApp />
+          <Toaster />
         </AuthProvider>
       </BrowserRouter>
     </ThemeProvider>

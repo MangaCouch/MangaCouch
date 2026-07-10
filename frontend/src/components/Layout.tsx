@@ -8,7 +8,7 @@ import { useTheme } from '../hooks/useTheme';
 import { t } from '../i18n/strings';
 
 export function Layout() {
-  const { lock, isOwner, role } = useAuth();
+  const { lock, isOwner } = useAuth();
   const { theme, toggle } = useTheme();
   const location = useLocation();
 
@@ -35,9 +35,6 @@ export function Layout() {
           )}
         </nav>
         <div className="navbar__actions">
-          <span className="navbar__role" title="Current role">
-            {role === 'owner' ? t('common.owner') : t('common.reader')}
-          </span>
           <button
             type="button"
             className="btn btn--icon"

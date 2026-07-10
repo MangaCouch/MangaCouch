@@ -1,4 +1,4 @@
-"""End-to-end API tests over the real app (read flow, auth roles, upload, search)."""
+"""End-to-end API tests over the real app (read flow, single-owner auth, upload, search)."""
 
 from __future__ import annotations
 
@@ -28,7 +28,6 @@ class Env:
     client: TestClient
     ctx: AppContext
     owner_key: str
-    reader_key: str
     archive_id: str
 
 
@@ -47,11 +46,12 @@ def env(roots: Config, sample_pages) -> Iterator[Env]:
                 enabled=True,
             )
         )
+        # A legacy "reader" credential row must be ignored by the single-user auth model.
         session.add(
             AuthCredential(
                 role="reader",
                 passcode_hash=hash_passcode("readerpass"),
-                api_key_hash=hash_api_key("reader-key"),
+                api_key_hash=hash_api_key("legacy-reader-key"),
                 enabled=True,
             )
         )
@@ -71,7 +71,7 @@ def env(roots: Config, sample_pages) -> Iterator[Env]:
 
     app = create_app(context=ctx)
     with TestClient(app) as client:
-        yield Env(client, ctx, "owner-key", "reader-key", archive_id)
+        yield Env(client, ctx, "owner-key", archive_id)
 
 
 def test_health(env: Env):
@@ -85,10 +85,12 @@ def test_auth_required(env: Env):
 
 
 def test_login_and_list(env: Env):
-    r = env.client.post("/api/auth/login", json={"passcode": "readerpass"})
+    # The legacy reader passcode no longer logs in.
+    assert env.client.post("/api/auth/login", json={"passcode": "readerpass"}).status_code == 401
+    r = env.client.post("/api/auth/login", json={"passcode": "ownerpass"})
     assert r.status_code == 200
     token = r.json()
-    assert token["role"] == "reader"
+    assert token["role"] == "owner"
     # Use the returned session token.
     r2 = env.client.get("/api/archives", headers=_bearer(token["api_key"]))
     assert r2.status_code == 200
@@ -98,7 +100,7 @@ def test_login_and_list(env: Env):
 
 
 def test_detail_pages_and_image(env: Env):
-    h = _bearer(env.reader_key)
+    h = _bearer(env.owner_key)
     detail = env.client.get(f"/api/archives/{env.archive_id}", headers=h).json()
     assert detail["title"] == "Test Gallery"
     assert any(t["namespace"] == "artist" for t in detail["tags"])
@@ -117,14 +119,14 @@ def test_detail_pages_and_image(env: Env):
 
 def test_media_auth_via_query_key(env: Env):
     """`<img>` can't set headers, so ?key= must authenticate media routes."""
-    key = base64.b64encode(env.reader_key.encode()).decode()
+    key = base64.b64encode(env.owner_key.encode()).decode()
     r = env.client.get(f"/api/archives/{env.archive_id}/thumbnail", params={"key": key})
     assert r.status_code == 200
     assert r.headers["content-type"] == "image/webp"
 
 
 def test_search_by_namespace(env: Env):
-    h = _bearer(env.reader_key)
+    h = _bearer(env.owner_key)
     hit = env.client.get("/api/archives", params={"q": "artist:tester"}, headers=h).json()
     assert hit["total"] == 1
     miss = env.client.get("/api/archives", params={"q": "artist:nobody"}, headers=h).json()
@@ -132,18 +134,16 @@ def test_search_by_namespace(env: Env):
 
 
 def test_progress_and_read_flag(env: Env):
-    h = _bearer(env.reader_key)
+    h = _bearer(env.owner_key)
     env.client.put(f"/api/archives/{env.archive_id}/progress/3", headers=h)
     detail = env.client.get(f"/api/archives/{env.archive_id}", headers=h).json()
     assert detail["progress"]["page"] == 3
     assert detail["read"] is True  # 3/3 > 0.85
 
 
-def test_reader_cannot_write_owner_routes(env: Env):
-    h = _bearer(env.reader_key)
-    assert env.client.put(
-        f"/api/archives/{env.archive_id}/metadata", json={"title": "x"}, headers=h
-    ).status_code == 403
+def test_legacy_reader_key_is_rejected(env: Env):
+    h = _bearer("legacy-reader-key")
+    assert env.client.get("/api/archives", headers=h).status_code == 401
     assert env.client.get("/api/config", headers=h).status_code == 403
 
 
@@ -199,30 +199,22 @@ def test_plugins_listed(env: Env):
 
 def test_change_passcode(env: Env):
     h = _bearer(env.owner_key)
-    # Reader passcode can be changed by the owner without the current one.
-    assert env.client.post(
-        "/api/auth/passcode", json={"role": "reader", "new_passcode": "newreaderpw"}, headers=h
-    ).status_code == 200
-    assert env.client.post("/api/auth/login", json={"passcode": "newreaderpw"}).status_code == 200
-
-    # Owner passcode change requires the correct current passcode.
+    # The passcode change requires the correct current passcode.
     assert env.client.post(
         "/api/auth/passcode",
-        json={"role": "owner", "new_passcode": "newownerpw", "current_passcode": "wrong"},
+        json={"new_passcode": "newownerpw", "current_passcode": "wrong"},
         headers=h,
     ).status_code == 401
     assert env.client.post(
         "/api/auth/passcode",
-        json={"role": "owner", "new_passcode": "newownerpw", "current_passcode": "ownerpass"},
+        json={"new_passcode": "newownerpw", "current_passcode": "ownerpass"},
         headers=h,
     ).status_code == 200
     assert env.client.post("/api/auth/login", json={"passcode": "newownerpw"}).json()["role"] == "owner"
 
-    # Readers may not change passcodes.
+    # Unauthenticated callers may not change passcodes.
     assert env.client.post(
-        "/api/auth/passcode",
-        json={"role": "reader", "new_passcode": "nope"},
-        headers=_bearer(env.reader_key),
+        "/api/auth/passcode", json={"new_passcode": "nope"}
     ).status_code == 403
 
 
@@ -298,7 +290,7 @@ def test_gp_balance_with_url(env: Env, monkeypatch):
 
 
 def test_opds_root(env: Env):
-    key = base64.b64encode(env.reader_key.encode()).decode()
+    key = base64.b64encode(env.owner_key.encode()).decode()
     r = env.client.get("/api/opds", params={"key": key})
     assert r.status_code == 200
     assert "<feed" in r.text
@@ -306,19 +298,19 @@ def test_opds_root(env: Env):
 
 
 def test_download_original_archive(env: Env):
-    r = env.client.get(f"/api/archives/{env.archive_id}/download", headers=_bearer(env.reader_key))
+    r = env.client.get(f"/api/archives/{env.archive_id}/download", headers=_bearer(env.owner_key))
     assert r.status_code == 200
     assert r.headers["content-type"] == "application/zip"
     assert "Gallery.zip" in r.headers.get("content-disposition", "")
     assert r.content[:2] == b"PK"  # the original bytes, not a re-pack
     # Media-style ?key= auth works too (OPDS readers can't set headers).
-    key = base64.b64encode(env.reader_key.encode()).decode()
+    key = base64.b64encode(env.owner_key.encode()).decode()
     r2 = env.client.get(f"/api/archives/{env.archive_id}/download", params={"key": key})
     assert r2.status_code == 200
 
 
 def test_opds_acquisition_and_key_propagation(env: Env):
-    key = base64.b64encode(env.reader_key.encode()).decode()
+    key = base64.b64encode(env.owner_key.encode()).decode()
     r = env.client.get("/api/opds", params={"key": key})
     assert r.status_code == 200
     assert "opds-spec.org/acquisition" in r.text
@@ -340,9 +332,112 @@ def test_thumbnail_prewarm_sweep(env: Env):
 
 
 def test_login_returns_client_defaults(env: Env):
-    r = env.client.post("/api/auth/login", json={"passcode": "readerpass"})
+    r = env.client.post("/api/auth/login", json={"passcode": "ownerpass"})
     assert r.status_code == 200
     defaults = r.json()["defaults"]
     assert defaults["reader"]["mode"] in ("scroll", "paged")
     assert defaults["reader"]["direction"] in ("rtl", "ltr")
     assert isinstance(defaults["auto_lock_minutes"], int)
+
+
+# -- new feature coverage -------------------------------------------------------------------------
+
+
+def test_random_archive(env: Env):
+    h = _bearer(env.owner_key)
+    r = env.client.get("/api/archives/random", headers=h)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["id"] == env.archive_id
+    assert body["new"] is True  # never opened yet
+
+    # Once everything is read, random still returns something (new: False).
+    env.client.put(f"/api/archives/{env.archive_id}/progress/3", headers=h)
+    body2 = env.client.get("/api/archives/random", headers=h).json()
+    assert body2["id"] == env.archive_id
+    assert body2["new"] is False
+
+
+def test_favorite_toggle(env: Env):
+    h = _bearer(env.owner_key)
+    detail = env.client.get(f"/api/archives/{env.archive_id}", headers=h).json()
+    assert detail["favorite"] is False
+
+    assert env.client.put(
+        f"/api/archives/{env.archive_id}/favorite", headers=h
+    ).json()["favorite"] is True
+    detail = env.client.get(f"/api/archives/{env.archive_id}", headers=h).json()
+    assert detail["favorite"] is True
+
+    assert env.client.delete(
+        f"/api/archives/{env.archive_id}/favorite", headers=h
+    ).json()["favorite"] is False
+    detail = env.client.get(f"/api/archives/{env.archive_id}", headers=h).json()
+    assert detail["favorite"] is False
+
+
+def test_first_run_flow(env: Env):
+    from mangacouch.db.models import AppConfig
+
+    with session_scope() as session:
+        session.add(AppConfig(key="first_run_pending", value="true"))
+
+    status = env.client.get("/api/auth/status").json()
+    assert status["first_run"] is True
+    assert status["owner_configured"] is True
+
+    r = env.client.post("/api/auth/first-run", json={"regenerate": True})
+    assert r.status_code == 200
+    passcode = r.json()["passcode"]
+    assert len(passcode) >= 10
+
+    # The window is single-use.
+    assert env.client.post("/api/auth/first-run", json={"regenerate": True}).status_code == 403
+    assert env.client.get("/api/auth/status").json()["first_run"] is False
+
+    # The regenerated passcode logs in.
+    assert env.client.post("/api/auth/login", json={"passcode": passcode}).status_code == 200
+
+
+def test_search_translated_tag(env: Env):
+    """Searching by the EhTagTranslation (Chinese) name must match the raw English tag."""
+    from mangacouch.db.models import TagTranslation
+
+    with session_scope() as session:
+        session.add(TagTranslation(namespace="female", raw="lolicon", translated="萝莉"))
+        env.ctx.translator.load(session)
+    env.ctx.rebuild_search()
+
+    h = _bearer(env.owner_key)
+    hit = env.client.get("/api/archives", params={"q": "萝莉"}, headers=h).json()
+    assert hit["total"] == 1
+    miss = env.client.get("/api/archives", params={"q": "不存在的标签"}, headers=h).json()
+    assert miss["total"] == 0
+
+
+def test_delete_archive_removes_file(env: Env, sample_pages, tmp_path):
+    h = _bearer(env.owner_key)
+    payload = make_zip(tmp_path / "todelete.zip", sample_pages).read_bytes()
+    up = env.client.post(
+        "/api/upload",
+        files={"file": ("todelete.zip", payload, "application/zip")},
+        headers=h,
+    ).json()
+    archive_id = up["archive_id"]
+    rel = env.client.get(f"/api/archives/{archive_id}", headers=h).json()
+
+    r = env.client.delete(f"/api/archives/{archive_id}", headers=h)
+    assert r.status_code == 200
+    assert r.json()["file_removed"] is True
+    assert not (env.ctx.config.manga_root / r.json()["rel_path"]).exists()
+    assert rel is not None  # sanity: the row existed before deletion
+
+
+def test_passcode_generator_mixes_classes():
+    from mangacouch.cli import friendly_passcode
+
+    for _ in range(20):
+        code = friendly_passcode()
+        assert any(c.isdigit() for c in code)
+        assert any(c.isupper() for c in code)
+        assert any(c.islower() for c in code)

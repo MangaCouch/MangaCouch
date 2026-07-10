@@ -274,16 +274,21 @@ class AppContext:
         self.set_setting("tagdb_refreshed_at", datetime.now(UTC).isoformat())
         self.translator.load_safe()  # reload the in-memory map
         log.info("tag database refreshed: %d entries", count)
+        # Translated names are part of the FTS text — refresh them so localized search stays true.
+        self.rebuild_search()
 
     def _rebuild_search_if_empty(self) -> None:
         """Rebuild the FTS index only when it's actually empty (cache/ was deleted) — a full
         rebuild on every boot is slow and leaves a search-returns-nothing window."""
+        if self.search.count() > 0:
+            return
+        self.rebuild_search()
+
+    def rebuild_search(self) -> None:
+        """Full FTS rebuild from the authoritative DB (includes translated tag names)."""
         from sqlalchemy import select
 
         from .db.models import Archive, ArchiveTag, Tag
-
-        if self.search.count() > 0:
-            return
 
         with session_scope() as session:
             rows = session.execute(select(Archive.id, Archive.title)).all()
@@ -346,6 +351,8 @@ def build_context(config: Config, *, use_process_pool: bool = True) -> AppContex
         concurrency=config.acquisition.rate_limit_concurrency,
     )
     translator = TagTranslator()
+    # Index translated tag names too, so searching in the EhTagTranslation language works.
+    search.translate = translator.translate
     watcher = LibraryWatcher(config.manga_root, ingestor)
 
     ctx = AppContext(

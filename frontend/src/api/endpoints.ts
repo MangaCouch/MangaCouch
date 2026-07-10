@@ -16,7 +16,6 @@ import type {
   ArchiveListResponse,
   BalanceResponse,
   Category,
-  FavoriteList,
   JobListResponse,
   LoginResponse,
   PagesResponse,
@@ -34,14 +33,26 @@ export function login(passcode: string) {
   });
 }
 
-export function changePasscode(
-  role: 'owner' | 'reader',
-  newPasscode: string,
-  currentPasscode?: string,
-) {
+export function changePasscode(newPasscode: string, currentPasscode?: string) {
   return apiPost<{ ok: boolean; role: string }>('/api/auth/passcode', {
-    json: { role, new_passcode: newPasscode, current_passcode: currentPasscode },
+    json: { new_passcode: newPasscode, current_passcode: currentPasscode },
   });
+}
+
+/** First-run status (owner_configured + first_run window flag). Unauthenticated. */
+export function getAuthStatus(signal?: AbortSignal) {
+  return apiGet<{ owner_configured: boolean; first_run: boolean }>('/api/auth/status', {
+    signal,
+    noAuth: true,
+  });
+}
+
+/** First-run choice: keep the provisioned passcode, or regenerate (returns it once). */
+export function firstRunChoice(regenerate: boolean) {
+  return apiPost<{ ok: boolean; regenerated: boolean; passcode?: string }>(
+    '/api/auth/first-run',
+    { json: { regenerate }, noAuth: true },
+  );
 }
 
 // ---- Library --------------------------------------------------------------
@@ -52,9 +63,8 @@ export interface ArchiveQuery {
   sort?: SortKey;
   sortdir?: 'asc' | 'desc';
   page?: number;
-  /** Extra filters supported by the search syntax / spec. */
+  /** Sugar for the `newonly` query filter token (unread archives only). */
   newonly?: boolean;
-  random?: boolean;
   /** Allow passing the query object generically to apiGet without widening at each call site. */
   [key: string]: string | number | boolean | null | undefined;
 }
@@ -69,16 +79,27 @@ export function getArchive(id: string, signal?: AbortSignal) {
   return apiGet<Archive>(`/api/archives/${encodeURIComponent(id)}`, { signal });
 }
 
+/** A random new (unread) archive when one exists, else any random archive. */
+export function randomArchive(signal?: AbortSignal) {
+  return apiGet<{ id: string; new: boolean }>('/api/archives/random', { signal });
+}
+
 export function getPages(id: string, signal?: AbortSignal) {
   return apiGet<PagesResponse>(`/api/archives/${encodeURIComponent(id)}/pages`, {
     signal,
   });
 }
 
-export function updateMetadata(
-  id: string,
-  patch: Partial<Pick<Archive, 'title' | 'summary' | 'rating' | 'tags'>>,
-) {
+/** PUT metadata body — tags are raw `namespace:value` strings (full replacement). */
+export interface MetadataPatch {
+  title?: string;
+  summary?: string;
+  rating?: number;
+  language?: string;
+  tags?: string[];
+}
+
+export function updateMetadata(id: string, patch: MetadataPatch) {
   return apiPut<Archive>(`/api/archives/${encodeURIComponent(id)}/metadata`, {
     json: patch,
   });
@@ -88,8 +109,11 @@ export function setRating(id: string, rating: number) {
   return updateMetadata(id, { rating });
 }
 
+/** Deletes the archive record AND the file on disk (plus sidecars). */
 export function deleteArchive(id: string) {
-  return apiDelete<void>(`/api/archives/${encodeURIComponent(id)}`);
+  return apiDelete<void>(`/api/archives/${encodeURIComponent(id)}`, {
+    query: { delete_file: true },
+  });
 }
 
 export function setProgress(id: string, page: number) {
@@ -147,26 +171,13 @@ export function removeFromCategory(categoryId: string, archiveId: string) {
   );
 }
 
-// ---- Favorites ------------------------------------------------------------
+// ---- Favorites (simple boolean toggle) --------------------------------------
 
-export function listFavoriteLists(signal?: AbortSignal) {
-  return apiGet<{ lists: FavoriteList[] }>('/api/favorites/lists', { signal });
-}
-
-export function createFavoriteList(name: string) {
-  return apiPost<FavoriteList>('/api/favorites/lists', { json: { name } });
-}
-
-export function addFavorite(listId: string, archiveId: string) {
-  return apiPut<void>(
-    `/api/favorites/${encodeURIComponent(listId)}/${encodeURIComponent(archiveId)}`,
-  );
-}
-
-export function removeFavorite(listId: string, archiveId: string) {
-  return apiDelete<void>(
-    `/api/favorites/${encodeURIComponent(listId)}/${encodeURIComponent(archiveId)}`,
-  );
+export function setFavorite(archiveId: string, favorite: boolean) {
+  const path = `/api/archives/${encodeURIComponent(archiveId)}/favorite`;
+  return favorite
+    ? apiPut<{ archive_id: string; favorite: boolean }>(path)
+    : apiDelete<{ archive_id: string; favorite: boolean }>(path);
 }
 
 // ---- Downloads ------------------------------------------------------------

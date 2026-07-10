@@ -1,4 +1,4 @@
-"""Passcodes, API keys, and the owner/reader role model (§5.6).
+"""Passcodes, API keys, and the single-owner role model (§5.6).
 
 Passcodes are hashed with argon2id. API keys are random ``secrets`` tokens, stored only as a SHA-256
 hash (they are high-entropy, so a fast hash is appropriate and lets us look a key up by its hash).
@@ -20,8 +20,9 @@ _hasher = PasswordHasher()  # argon2id with library defaults
 
 
 class Role(enum.StrEnum):
+    # Single-user model: the owner passcode is the only credential. (The historical "reader"
+    # role was removed — rows with other role values are simply ignored at auth time.)
     OWNER = "owner"
-    READER = "reader"
 
     @property
     def can_write(self) -> bool:

@@ -5,8 +5,10 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
   type TouchEvent as ReactTouchEvent,
 } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
@@ -25,6 +27,8 @@ import {
 import { t } from '../i18n/strings';
 
 const SWIPE_THRESHOLD = 50;
+// Hovering within this many px of the top/bottom edge reveals the toolbars.
+const HOVER_REVEAL_PX = 88;
 
 export function Reader() {
   const { id = '' } = useParams();
@@ -50,12 +54,30 @@ export function Reader() {
   } = reader;
 
   const [chromeVisible, setChromeVisible] = useState(true);
+  const [hoverChrome, setHoverChrome] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [bookmarksOpen, setBookmarksOpen] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [bookmarked, setBookmarked] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
+
+  // Desktop: hovering near the top or bottom edge (toolbar regions + a buffer)
+  // reveals the chrome even in immersive mode, so getting back to the detail
+  // page is a single click on the always-reachable ← button.
+  const hasHover = useMemo(
+    () => window.matchMedia('(hover: hover) and (pointer: fine)').matches,
+    [],
+  );
+  const onMouseMove = useCallback(
+    (e: ReactMouseEvent) => {
+      if (!hasHover) return;
+      const h = rootRef.current?.clientHeight ?? window.innerHeight;
+      const y = e.clientY;
+      setHoverChrome(y < HOVER_REVEAL_PX || y > h - HOVER_REVEAL_PX);
+    },
+    [hasHover],
+  );
 
   // Track bookmark state for the current page.
   useEffect(() => {
@@ -99,7 +121,7 @@ export function Reader() {
           toggleFullscreen();
           break;
         case 'Escape':
-          if (!settingsOpen && !bookmarksOpen) navigate(-1);
+          if (!settingsOpen && !bookmarksOpen) navigate(`/archive/${id}`);
           break;
         default:
           break;
@@ -108,7 +130,7 @@ export function Reader() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [next, prev, settings.direction, settings.mode, settingsOpen, bookmarksOpen]);
+  }, [next, prev, settings.direction, settings.mode, settingsOpen, bookmarksOpen, id]);
 
   // Autoplay timer.
   useEffect(() => {
@@ -200,16 +222,19 @@ export function Reader() {
   return (
     <div
       ref={rootRef}
-      className={`reader reader--${settings.mode} ${chromeVisible ? '' : 'reader--immersive'}`}
+      className={`reader reader--${settings.mode} ${
+        chromeVisible || hoverChrome ? '' : 'reader--immersive'
+      }`}
       onTouchStart={onTouchStart}
       onTouchEnd={onTouchEnd}
+      onMouseMove={onMouseMove}
     >
       {/* Top toolbar */}
       <header className="reader-bar">
         <button
           type="button"
           className="btn btn--icon"
-          onClick={() => navigate(-1)}
+          onClick={() => navigate(`/archive/${id}`)}
           aria-label={t('reader.close')}
           title={t('common.back')}
         >

@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from ... import config as config_mod
 from ...db.models import Archive, ArchiveTag, DownloadJob, History, Tag
 from ...state import AppContext
-from ..deps import get_context, get_db, require_owner, require_reader
+from ..deps import get_context, get_db, require_auth, require_owner
 
 router = APIRouter(prefix="/api", tags=["admin"])
 
@@ -160,7 +160,7 @@ def regen_thumbnails(
 
 
 @router.get("/stats")
-def stats(_: object = Depends(require_reader), db: Session = Depends(get_db)) -> dict:
+def stats(_: object = Depends(require_auth), db: Session = Depends(get_db)) -> dict:
     total = int(db.scalar(select(func.count()).select_from(Archive)) or 0)
     pages = int(db.scalar(select(func.coalesce(func.sum(Archive.page_count), 0))) or 0)
     size = int(db.scalar(select(func.coalesce(func.sum(Archive.size), 0))) or 0)
@@ -201,7 +201,7 @@ def stats(_: object = Depends(require_reader), db: Session = Depends(get_db)) ->
 
 @router.get("/history")
 def history(
-    limit: int = 50, _: object = Depends(require_reader), db: Session = Depends(get_db)
+    limit: int = 50, _: object = Depends(require_auth), db: Session = Depends(get_db)
 ) -> dict:
     rows = db.execute(
         select(History.archive_id, func.max(History.opened_at), Archive.title)

@@ -1,12 +1,15 @@
 // Paged (slide) reader view. Renders the current spread (1 or 2 pages),
-// applies the fit mode, honors RTL/LTR ordering, and exposes prev/next tap
-// zones. Wide pages report themselves so a spread collapses to single.
+// applies the fit mode, honors RTL/LTR ordering, and exposes full-height
+// prev/next tap zones (left/right thirds; the center third toggles the
+// chrome). Supports pinch-zoom / pan / double-tap via useZoom. Wide pages
+// report themselves so a spread collapses to single.
 
 import { useEffect, useMemo, useRef } from 'react';
 import { pageImageUrl } from '../api/endpoints';
 import { SmartImage } from '../components/SmartImage';
 import { isWideImage } from './spreads';
 import type { ReaderState } from './useReader';
+import { useZoom } from './useZoom';
 
 export function PagedView({
   reader,
@@ -27,6 +30,15 @@ export function PagedView({
     prev,
     next,
   } = reader;
+
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const zoom = useZoom(containerRef);
+  const { reset: resetZoom } = zoom;
+
+  // A page turn always starts un-zoomed.
+  useEffect(() => {
+    resetZoom();
+  }, [current, resetZoom]);
 
   // Warm the neighbour pages within the preload window (the spread itself only
   // renders the current pages, so without this every page turn cold-fetches).
@@ -72,14 +84,25 @@ export function PagedView({
   const onRightZone = settings.direction === 'rtl' ? prev : next;
 
   return (
-    <div className={`pages ${fitClass}`} data-direction={settings.direction}>
-      <button
-        type="button"
-        className="pages__zone pages__zone--left"
-        onClick={onLeftZone}
-        aria-label="Previous/next page (left zone)"
-      />
-      <div className="pages__spread" data-count={ordered.length}>
+    <div
+      ref={containerRef}
+      className={`pages ${fitClass} ${zoom.zoomed ? 'pages--zoomed' : ''}`}
+      data-direction={settings.direction}
+      onTouchStart={zoom.handlers.onTouchStart}
+      onTouchMove={zoom.handlers.onTouchMove}
+      onTouchEnd={zoom.handlers.onTouchEnd}
+      onWheel={zoom.handlers.onWheel}
+      onDoubleClick={zoom.handlers.onDoubleClick}
+    >
+      {!zoom.zoomed && (
+        <button
+          type="button"
+          className="pages__zone pages__zone--left"
+          onClick={onLeftZone}
+          aria-label="Previous/next page (left zone)"
+        />
+      )}
+      <div className="pages__spread" data-count={ordered.length} style={zoom.style}>
         {ordered.map((index) => {
           const page = pages[index];
           if (!page) return null;
@@ -99,12 +122,14 @@ export function PagedView({
           );
         })}
       </div>
-      <button
-        type="button"
-        className="pages__zone pages__zone--right"
-        onClick={onRightZone}
-        aria-label="Previous/next page (right zone)"
-      />
+      {!zoom.zoomed && (
+        <button
+          type="button"
+          className="pages__zone pages__zone--right"
+          onClick={onRightZone}
+          aria-label="Previous/next page (right zone)"
+        />
+      )}
     </div>
   );
 }

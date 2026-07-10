@@ -1,5 +1,5 @@
 """The ``mangacouch`` console entry point: ``init``, ``serve``, ``scan``, ``refresh-tags``,
-``set-passcode``."""
+``set-passcode``, ``nuke``, ``mock``."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import argparse
 import asyncio
 import logging
 import secrets
+import string
 import sys
 from pathlib import Path
 
@@ -35,8 +36,17 @@ def _ensure_db(config: Config) -> None:
     load_or_create_keyfile(config.secrets_keyfile_path)
 
 
-def _friendly_passcode() -> str:
-    return secrets.token_hex(4)  # 8 typable hex chars
+def friendly_passcode(length: int = 10) -> str:
+    """A typable default passcode guaranteed to mix digits, uppercase and lowercase letters."""
+    alphabet = string.ascii_letters + string.digits
+    while True:
+        code = "".join(secrets.choice(alphabet) for _ in range(length))
+        if (
+            any(c.isdigit() for c in code)
+            and any(c.isupper() for c in code)
+            and any(c.islower() for c in code)
+        ):
+            return code
 
 
 def _provision(config: Config, role: str, passcode: str | None, *, force: bool) -> dict | None:
@@ -49,7 +59,7 @@ def _provision(config: Config, role: str, passcode: str | None, *, force: bool) 
         cred = session.scalar(select(AuthCredential).where(AuthCredential.role == role))
         if cred is not None and cred.passcode_hash and not force:
             return None
-        passcode = passcode or _friendly_passcode()
+        passcode = passcode or friendly_passcode()
         api_key = generate_api_key()
         if cred is None:
             cred = AuthCredential(role=role)
@@ -72,15 +82,16 @@ def cmd_init(args: argparse.Namespace) -> int:
     print(f"  manga:    {config.manga_root}")
     print()
 
-    owner = _provision(config, "owner", args.owner_passcode, force=args.force)
-    reader = _provision(config, "reader", args.reader_passcode, force=args.force)
-    for cred in (owner, reader):
-        if cred:
-            print(f"== {cred['role'].upper()} credentials (shown ONCE — store them now) ==")
-            print(f"   passcode: {cred['passcode']}")
-            print(f"   api key : {cred['api_key']}")
-            print()
-    if owner is None and reader is None and not args.force:
+    owner = _provision(config, "owner", args.passcode, force=args.force)
+    if owner:
+        print("== OWNER credentials (shown ONCE — store them now) ==")
+        print(f"   passcode: {owner['passcode']}")
+        print(f"   api key : {owner['api_key']}")
+        print()
+        # Open the browser first-run window: the UI offers to keep or regenerate this passcode
+        # (for installs where this terminal output is never seen, e.g. Docker).
+        _set_app_flag("first_run_pending", "true")
+    elif not args.force:
         print("Credentials already provisioned (use --force to regenerate).")
 
     if not args.no_tags:
@@ -134,11 +145,82 @@ def cmd_set_passcode(args: argparse.Namespace) -> int:
     base = Path(args.base).resolve() if args.base else None
     config = load_config(base)
     _ensure_db(config)
-    cred = _provision(config, args.role, args.passcode, force=True)
+    cred = _provision(config, "owner", args.passcode, force=True)
     assert cred is not None
-    print(f"{args.role} passcode set.")
+    print("owner passcode set.")
     print(f"   passcode: {cred['passcode']}")
     print(f"   api key : {cred['api_key']}  (store it — only the hash is kept)")
+    return 0
+
+
+def _set_app_flag(key: str, value: str) -> None:
+    from .db.base import session_scope
+    from .db.models import AppConfig
+
+    with session_scope() as session:
+        row = session.get(AppConfig, key)
+        if row is None:
+            session.add(AppConfig(key=key, value=value))
+        else:
+            row.value = value
+
+
+def cmd_nuke(args: argparse.Namespace) -> int:
+    """Wipe everything MangaCouch generated — database, caches, search index, thumbnails, tag
+    translations, credentials — while leaving the manga folder untouched."""
+    import shutil
+
+    base = Path(args.base).resolve() if args.base else None
+    config = load_config(base)
+
+    targets = [config.database_root, config.cache_root]
+    # Safety: never delete a root the manga folder lives inside.
+    manga = config.manga_root.resolve()
+    for t in targets:
+        t = t.resolve()
+        if manga == t or t in manga.parents:
+            print(f"refusing to nuke {t}: the manga folder {manga} lives inside it")
+            return 1
+
+    print("This will permanently delete:")
+    for t in targets:
+        print(f"  - {t}")
+    if args.config:
+        print(f"  - {config.base_dir / config_mod.CONFIG_FILENAME}")
+    print(f"The manga folder is kept: {config.manga_root}")
+    if not args.yes:
+        answer = input("Type 'nuke' to confirm: ").strip().lower()
+        if answer != "nuke":
+            print("aborted.")
+            return 1
+
+    for t in targets:
+        if t.exists():
+            shutil.rmtree(t, ignore_errors=True)
+            print(f"removed {t}")
+    if args.config:
+        (config.base_dir / config_mod.CONFIG_FILENAME).unlink(missing_ok=True)
+        print("removed config.toml")
+    print("Done. Run `mangacouch init` to start fresh (your manga folder is intact).")
+    return 0
+
+
+def cmd_mock(args: argparse.Namespace) -> int:
+    """Generate mock .cbz archives (with sidecar metadata) in the manga folder for UI testing."""
+    from .testing.mockdata import generate_mock_library
+
+    base = Path(args.base).resolve() if args.base else None
+    config = load_config(base)
+    _ensure_db(config)
+    created = generate_mock_library(config.manga_root, count=args.count, seed=args.seed)
+    print(f"created {created} mock archives under {config.manga_root}")
+    ctx = _headless_context(config)
+    try:
+        stats = ctx.ingestor.scan()
+        ctx._rebuild_search_if_empty()
+        print(f"scan complete: {stats}")
+    finally:
+        ctx.shutdown()
     return 0
 
 
@@ -190,8 +272,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_init = sub.add_parser("init", help="create config + database and provision credentials")
-    p_init.add_argument("--owner-passcode")
-    p_init.add_argument("--reader-passcode")
+    p_init.add_argument("--passcode", help="owner passcode (default: generated)")
     p_init.add_argument("--force", action="store_true", help="regenerate existing credentials")
     p_init.add_argument("--no-tags", action="store_true", help="skip the tag-database download")
     p_init.set_defaults(func=cmd_init)
@@ -207,10 +288,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_tags = sub.add_parser("refresh-tags", help="download the EhTagTranslation database")
     p_tags.set_defaults(func=cmd_refresh_tags)
 
-    p_pass = sub.add_parser("set-passcode", help="set or reset a role's passcode + API key")
-    p_pass.add_argument("role", choices=["owner", "reader"])
+    p_pass = sub.add_parser("set-passcode", help="set or reset the owner passcode + API key")
     p_pass.add_argument("--passcode")
     p_pass.set_defaults(func=cmd_set_passcode)
+
+    p_nuke = sub.add_parser(
+        "nuke", help="delete the database, caches and tag translations (manga folder is kept)"
+    )
+    p_nuke.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
+    p_nuke.add_argument("--config", action="store_true", help="also delete config.toml")
+    p_nuke.set_defaults(func=cmd_nuke)
+
+    p_mock = sub.add_parser("mock", help="generate mock archives in the manga folder (testing)")
+    p_mock.add_argument("--count", type=int, default=100)
+    p_mock.add_argument("--seed", type=int, default=42)
+    p_mock.set_defaults(func=cmd_mock)
     return parser
 
 

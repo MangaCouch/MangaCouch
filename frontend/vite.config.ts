@@ -20,9 +20,11 @@ export default defineConfig({
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
         runtimeCaching: [
           {
-            // Cover/page thumbnails are content-addressed and immutable.
+            // Thumbnails: serve instantly from cache but refresh in the
+            // background, so "Regenerate thumbnails" (same URL, new bytes)
+            // propagates instead of being pinned for 30 days by CacheFirst.
             urlPattern: /\/api\/archives\/.*\/thumbnail.*/,
-            handler: 'CacheFirst',
+            handler: 'StaleWhileRevalidate',
             options: {
               cacheName: 'mc-thumbnails',
               expiration: { maxEntries: 2000, maxAgeSeconds: 60 * 60 * 24 * 30 },

@@ -7,13 +7,13 @@ mkdir -p "$BASE"
 
 if [ ! -f "$BASE/config.toml" ]; then
   echo "==> First run: initialising MangaCouch under $BASE"
-  # Honour optional one-shot credential overrides from the environment.
+  # Honour an optional one-shot passcode override from the environment.
   ARGS=(--base "$BASE" init)
-  [ -n "${OWNER_PASSCODE:-}" ] && ARGS+=(--owner-passcode "$OWNER_PASSCODE")
-  [ -n "${READER_PASSCODE:-}" ] && ARGS+=(--reader-passcode "$READER_PASSCODE")
+  [ -n "${OWNER_PASSCODE:-}" ] && ARGS+=(--passcode "$OWNER_PASSCODE")
   [ -n "${SKIP_TAGDB:-}" ] && ARGS+=(--no-tags)
   uv run mangacouch "${ARGS[@]}"
   echo "==> Credentials above are shown ONCE. Store them now."
+  echo "==> No terminal access? The web UI offers to keep or regenerate the passcode on first visit."
 fi
 
 if [ "${1:-serve}" = "serve" ]; then

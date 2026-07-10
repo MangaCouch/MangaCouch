@@ -7,12 +7,14 @@ order, from: an explicit nhentai URL (``source_url``), a ``source:nhentai.net/g/
 
 from __future__ import annotations
 
+import contextlib
 import re
 from urllib.parse import quote
 
 import httpx
 
 from ..base import (
+    MetadataComment,
     MetadataContext,
     MetadataPlugin,
     MetadataResult,
@@ -23,6 +25,7 @@ from ..base import (
 
 GALLERY_API = "https://nhentai.net/api/v2/galleries/{gid}"
 SEARCH_API = "https://nhentai.net/api/v2/search?query={query}"
+COMMENTS_API = "https://nhentai.net/api/gallery/{gid}/comments"
 
 _URL_RE = re.compile(r"nhentai\.net/g/(\d+)", re.IGNORECASE)
 _SOURCE_TAG_RE = re.compile(r"^source:\s*(?:https?://)?nhentai\.net/g/(\d+)", re.IGNORECASE)
@@ -95,18 +98,27 @@ class NHentaiMetadataPlugin(MetadataPlugin):
                     name="add_timestamp", type="bool", default=False,
                     description="Add a timestamp: tag with the gallery's upload date",
                 ),
+                PluginParam(
+                    name="fetch_comments", type="bool", default=True,
+                    description="Also fetch gallery comments",
+                ),
             ],
         )
 
     def get_tags(self, ctx: MetadataContext) -> MetadataResult:
         session = ctx.session or httpx.Client(follow_redirects=True, timeout=30.0)
         owns_session = ctx.session is None
+        comments: list[MetadataComment] = []
         try:
             self._apply_cf_cookie(session, ctx.config)
             gid = self._resolve_gallery_id(ctx, session)
             if gid is None:
                 return MetadataResult(error="No matching nHentai gallery found.")
             data = self._fetch_gallery(session, gid)
+            if _truthy(ctx.config.get("fetch_comments", True)):
+                # Comments are best-effort — never fail the tag fetch over them.
+                with contextlib.suppress(httpx.HTTPError, ValueError):
+                    comments = self._fetch_comments(session, gid)
         except httpx.HTTPStatusError as exc:
             return MetadataResult(error=f"nhentai returned HTTP {exc.response.status_code}")
         except (httpx.HTTPError, ValueError) as exc:
@@ -121,7 +133,7 @@ class NHentaiMetadataPlugin(MetadataPlugin):
         if _truthy(ctx.config.get("add_timestamp")) and data.get("upload_date"):
             tags.append(f"timestamp:{data['upload_date']}")
         tags.append(f"source:nhentai.net/g/{gid}")
-        return MetadataResult(tags=tags, title=title_from_gallery(data))
+        return MetadataResult(tags=tags, title=title_from_gallery(data), comments=comments)
 
     # -- internals ------------------------------------------------------------------------------
 
@@ -151,6 +163,31 @@ class NHentaiMetadataPlugin(MetadataPlugin):
         resp = session.get(GALLERY_API.format(gid=gid))
         resp.raise_for_status()
         return resp.json()
+
+    @staticmethod
+    def _fetch_comments(session: httpx.Client, gid: int) -> list[MetadataComment]:
+        resp = session.get(COMMENTS_API.format(gid=gid))
+        resp.raise_for_status()
+        data = resp.json()
+        if not isinstance(data, list):
+            return []
+        out: list[MetadataComment] = []
+        for row in data:
+            if not isinstance(row, dict):
+                continue
+            body = str(row.get("body", "")).strip()
+            if not body:
+                continue
+            poster = row.get("poster") or {}
+            posted = row.get("post_date")
+            out.append(
+                MetadataComment(
+                    username=str(poster.get("username", "")),
+                    posted=int(posted) if isinstance(posted, (int, float)) else None,
+                    content=body,
+                )
+            )
+        return out
 
 
 def _truthy(value: object) -> bool:

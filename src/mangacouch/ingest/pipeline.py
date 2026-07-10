@@ -281,6 +281,7 @@ class Ingestor:
                 # (and its progress/favorites) pointing at the original file.
                 return payload.archive_id
             arch = session.get(Archive, payload.archive_id)
+            is_new = arch is None
             if arch is None:
                 arch = Archive(id=payload.archive_id, added_at=datetime.now(UTC))
                 session.add(arch)
@@ -312,6 +313,17 @@ class Ingestor:
                 tag_list.append(f"source:{source_url}")
 
             self._sync_tags(session, arch, tag_list)
+            # Restore the sidecar's progress pointer on first import only — an existing row's
+            # progress is live user state and must never be rolled back by a rescan.
+            if is_new and mc is not None and mc.progress_page > 0:
+                from ..db.models import Progress
+
+                session.add(
+                    Progress(
+                        archive_id=payload.archive_id,
+                        page=min(mc.progress_page, max(payload.page_count, 0)),
+                    )
+                )
             session.flush()
             final_tags = self._current_tags(session, arch.id)
 

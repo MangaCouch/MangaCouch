@@ -19,6 +19,8 @@ import tomli_w
 DEFAULT_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) MangaCouch/0.1"
 
 CONFIG_FILENAME = "config.toml"
+# Data roots default under data/ so generated files never mix with the code checkout.
+DEFAULT_PATHS = {"database": "data/database", "cache": "data/cache", "manga": "data/manga"}
 SECRETS_KEYFILE = "secrets.key"
 LIBRARY_DB = "library.sqlite"
 SEARCH_DB = "search.sqlite"
@@ -154,9 +156,9 @@ def load_config(base_dir: Path | None = None) -> Config:
 
     paths = raw.get("paths", {})
     rel = {
-        "database": paths.get("database", "database"),
-        "cache": paths.get("cache", "cache"),
-        "manga": paths.get("manga", "manga"),
+        "database": paths.get("database", DEFAULT_PATHS["database"]),
+        "cache": paths.get("cache", DEFAULT_PATHS["cache"]),
+        "manga": paths.get("manga", DEFAULT_PATHS["manga"]),
     }
 
     def section(name: str) -> dict[str, Any]:
@@ -217,7 +219,7 @@ def load_config(base_dir: Path | None = None) -> Config:
 
 def to_toml_dict(config: Config) -> dict[str, Any]:
     """Serialise a :class:`Config` back to the ``config.toml`` structure (relative paths preserved)."""
-    rel = config._rel_paths or {"database": "database", "cache": "cache", "manga": "manga"}
+    rel = config._rel_paths or dict(DEFAULT_PATHS)
     return {
         "paths": dict(rel),
         "server": {
@@ -270,7 +272,7 @@ def write_default_config(base_dir: Path | None = None, *, overwrite: bool = Fals
     if path.exists() and not overwrite:
         return path
     default: dict[str, Any] = {
-        "paths": {"database": "database", "cache": "cache", "manga": "manga"},
+        "paths": dict(DEFAULT_PATHS),
         "server": {
             "host": "127.0.0.1",
             "port": 8000,

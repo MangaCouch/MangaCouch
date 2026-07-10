@@ -79,11 +79,11 @@ export function useReader(
         setArchive(arch);
         const sorted = [...pagesRes.pages].sort((a, b) => a.index - b.index);
         setPages(sorted);
-        // Resume: explicit ?page wins; else the saved progress; else 0.
+        // Resume: explicit ?page wins; else the saved progress page; else 0.
         const resume =
-          initialPage != null && initialPage >= 0
+          initialPage != null && Number.isFinite(initialPage) && initialPage >= 0
             ? initialPage
-            : (arch.progress ?? 0);
+            : (arch.progress?.page ?? 0);
         const clamped = Math.max(0, Math.min(resume, Math.max(0, sorted.length - 1)));
         setCurrent(clamped);
         lastSaved.current = clamped;

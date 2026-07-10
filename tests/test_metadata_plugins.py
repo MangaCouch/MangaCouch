@@ -85,6 +85,11 @@ def test_nh_tag_mapping():
 
 def test_nh_full_run_from_source_url():
     def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/gallery/177013/comments":
+            return httpx.Response(
+                200,
+                json=[{"poster": {"username": "bob"}, "post_date": 1476793729, "body": "nice"}],
+            )
         assert request.url.path == "/api/v2/galleries/177013"
         return httpx.Response(200, json=NH_GALLERY)
 
@@ -97,6 +102,9 @@ def test_nh_full_run_from_source_url():
     assert result.title == "METAMORPHOSIS"
     assert "source:nhentai.net/g/177013" in result.tags
     assert "timestamp:1476793729" not in "".join(result.tags)
+    assert len(result.comments) == 1
+    assert result.comments[0].username == "bob"
+    assert result.comments[0].posted == 1476793729
 
 
 def test_nh_timestamp_param():
@@ -208,3 +216,43 @@ def test_hitomi_no_id_found():
     plugin = hitomi_metadata.HitomiMetadataPlugin()
     result = plugin.get_tags(_ctx(title="whatever", file_path=Path("/x/Some Title.zip")))
     assert result.error is not None
+
+
+# -- e-hentai comment scraping --------------------------------------------------------------------
+
+
+EH_COMMENTS_HTML = (
+    '<div id="cdiv" class="gm">\n'
+    '<a name="c0"></a><div class="c1"><div class="c2">'
+    '<div class="c3">Posted on 12 January 2020, 03:55 by: &nbsp; '
+    '<a href="https://e-hentai.org/uploader/alice">alice</a>&nbsp;</div>'
+    '<div class="c4"></div></div>'
+    '<div class="c6" id="comment_0">First comment<br>second line &amp; entities</div></div>\n'
+    '<a name="c1"></a><div class="c1"><div class="c2">'
+    '<div class="c3">Posted on 03 March 2021, 18:20 by: &nbsp; '
+    '<a href="#">bob</a>&nbsp;</div></div>'
+    '<div class="c6" id="comment_1"><span>tagged</span> body</div></div>\n'
+    '<div id="chd"></div>\n'
+    "</div>\n"
+)
+
+
+def test_eh_comment_parsing():
+    from mangacouch.plugins.builtin import ehentai_metadata
+
+    comments = ehentai_metadata.parse_gallery_comments(EH_COMMENTS_HTML)
+    assert len(comments) == 2
+    assert comments[0].username == "alice"
+    assert comments[0].content == "First comment\nsecond line & entities"
+    assert comments[0].posted is not None
+    assert comments[1].username == "bob"
+    assert comments[1].content == "tagged body"
+
+
+def test_eh_rating_parsing():
+    from mangacouch.plugins.builtin.ehentai_metadata import gdata_rating
+
+    assert gdata_rating({"rating": "4.53"}) == 4.53
+    assert gdata_rating({"rating": ""}) is None
+    assert gdata_rating({}) is None
+    assert gdata_rating({"rating": "9.9"}) is None

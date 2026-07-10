@@ -1,6 +1,6 @@
 // Tag helpers: grouping by namespace and resolving display names.
 
-import type { Tag } from '../api/types';
+import type { Archive, Tag } from '../api/types';
 
 /** Namespaces treated as author/circle, surfaced separately on the detail page. */
 export const AUTHOR_NAMESPACES = ['artist', 'group'];
@@ -58,16 +58,23 @@ export function languageTags(tags: Tag[]): Tag[] {
   return tags.filter((t) => LANGUAGE_NAMESPACES.includes(t.namespace));
 }
 
-/** "read" semantics per spec: progress / page_count > 0.85. */
-export function isRead(progress: number | null | undefined, pageCount: number): boolean {
-  if (!progress || !pageCount) return false;
-  return progress / pageCount > 0.85;
+/** "read" semantics: the server computes it (progress.percent > 0.85); fall back locally. */
+export function isRead(archive: Pick<Archive, 'read' | 'progress' | 'page_count'>): boolean {
+  if (typeof archive.read === 'boolean') return archive.read;
+  return progressFraction(archive) > 0.85;
+}
+
+/** Last-read page (0-based) from the progress object; 0 when never opened. */
+export function progressPage(archive: Pick<Archive, 'progress'>): number {
+  return archive.progress?.page ?? 0;
 }
 
 export function progressFraction(
-  progress: number | null | undefined,
-  pageCount: number,
+  archive: Pick<Archive, 'progress' | 'page_count'>,
 ): number {
-  if (!progress || !pageCount) return 0;
-  return Math.min(1, progress / pageCount);
+  const p = archive.progress;
+  if (!p) return 0;
+  if (typeof p.percent === 'number') return Math.min(1, Math.max(0, p.percent));
+  if (!archive.page_count) return 0;
+  return Math.min(1, (p.page ?? 0) / archive.page_count);
 }

@@ -21,6 +21,7 @@ import {
 } from '../api/client';
 import { login as loginRequest } from '../api/endpoints';
 import { lsGet, lsGetRaw, lsSet } from '../lib/storage';
+import { setLocale } from '../i18n/strings';
 import type { ClientDefaults, Role } from '../api/types';
 
 interface AuthState {
@@ -64,6 +65,10 @@ function seedClientDefaults(defaults?: ClientDefaults): void {
   if (defaults.theme === 'dark' || defaults.theme === 'light') {
     lsSet('theme', defaults.theme);
     document.documentElement.setAttribute('data-theme', defaults.theme);
+  }
+
+  if (typeof defaults.language === 'string' && lsGetRaw('locale') == null) {
+    setLocale(defaults.language.toLowerCase().startsWith('zh') ? 'zh-Hans' : 'en');
   }
 }
 

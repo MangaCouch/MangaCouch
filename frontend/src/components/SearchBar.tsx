@@ -13,17 +13,19 @@ export interface SearchControls {
   sort: SortKey;
   sortdir: 'asc' | 'desc';
   newonly: boolean;
-  random: boolean;
 }
 
 export function SearchBar({
   controls,
   categories,
   onChange,
+  onRandom,
 }: {
   controls: SearchControls;
   categories: Category[];
   onChange: (next: Partial<SearchControls>) => void;
+  /** Jump to a random (preferably unread) archive. */
+  onRandom: () => void;
 }) {
   // Local input state so typing doesn't fire a request per keystroke; the
   // parent debounces by reacting to `q` changes.
@@ -36,7 +38,7 @@ export function SearchBar({
         className="searchbar__form"
         onSubmit={(e) => {
           e.preventDefault();
-          onChange({ q: text, random: false });
+          onChange({ q: text });
         }}
       >
         <input
@@ -70,7 +72,7 @@ export function SearchBar({
         <select
           className="select"
           value={controls.sort}
-          onChange={(e) => onChange({ sort: e.target.value as SortKey, random: false })}
+          onChange={(e) => onChange({ sort: e.target.value as SortKey })}
           aria-label="Sort by"
         >
           <option value="date_added">{t('library.sort.date_added')}</option>
@@ -101,7 +103,7 @@ export function SearchBar({
         <button
           type="button"
           className="btn"
-          onClick={() => onChange({ random: true })}
+          onClick={onRandom}
           title={t('library.random')}
         >
           🎲 {t('library.random')}

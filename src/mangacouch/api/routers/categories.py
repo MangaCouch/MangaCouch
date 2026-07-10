@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ...db.models import Category, CategoryArchive
-from ..deps import get_db, require_owner, require_reader
+from ..deps import get_db, require_auth, require_owner
 
 router = APIRouter(prefix="/api/categories", tags=["categories"])
 
@@ -40,7 +40,7 @@ def _serialize(db: Session, cat: Category) -> dict:
 
 
 @router.get("")
-def list_categories(_: object = Depends(require_reader), db: Session = Depends(get_db)) -> dict:
+def list_categories(_: object = Depends(require_auth), db: Session = Depends(get_db)) -> dict:
     cats = db.scalars(select(Category).order_by(Category.pinned.desc(), Category.name)).all()
     return {"categories": [_serialize(db, c) for c in cats]}
 

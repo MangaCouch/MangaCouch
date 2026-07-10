@@ -5,14 +5,15 @@
 // as the user scrolls; a manual "Load more" button is the fallback.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { listArchives, listCategories } from '../api/endpoints';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { listArchives, listCategories, randomArchive } from '../api/endpoints';
 import type { Archive, Category } from '../api/types';
 import type { SortKey } from '../api/endpoints';
 import { ApiError } from '../api/client';
 import { ArchiveCard } from '../components/ArchiveCard';
 import { SearchBar, type SearchControls } from '../components/SearchBar';
 import { Spinner, ErrorBanner } from '../components/ui';
+import { toast } from '../components/Toast';
 import { useAsync } from '../hooks/useApi';
 import { t } from '../i18n/strings';
 
@@ -23,13 +24,27 @@ function controlsFromParams(params: URLSearchParams): SearchControls {
     sort: (params.get('sort') as SortKey) ?? 'date_added',
     sortdir: (params.get('sortdir') as 'asc' | 'desc') ?? 'desc',
     newonly: params.get('newonly') === '1',
-    random: params.get('random') === '1',
   };
 }
 
 export function Library() {
   const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
   const controls = useMemo(() => controlsFromParams(params), [params]);
+
+  // 🎲 Random: jump to a random new manga (or any random one when all are read).
+  const onRandom = useCallback(async () => {
+    try {
+      const res = await randomArchive();
+      navigate(`/archive/${res.id}`);
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) {
+        toast.info(t('library.randomEmpty'));
+      } else {
+        toast.error(err instanceof Error ? err.message : String(err));
+      }
+    }
+  }, [navigate]);
 
   const { data: catData } = useAsync<{ categories: Category[] }>(
     (signal) => listCategories(signal),
@@ -55,7 +70,6 @@ export function Library() {
         sort: controls.sort,
         sortdir: controls.sortdir,
         newonly: controls.newonly,
-        random: controls.random,
       }),
     [controls],
   );
@@ -80,7 +94,6 @@ export function Library() {
         sort: controls.sort,
         sortdir: controls.sortdir,
         newonly: controls.newonly || undefined,
-        random: controls.random || undefined,
         page: 1,
       },
       controller.signal,
@@ -91,8 +104,7 @@ export function Library() {
         setTotal(res.total ?? res.archives.length);
         setHasMore(
           res.archives.length > 0 &&
-            (res.total ? res.archives.length < res.total : res.archives.length >= 1) &&
-            !controls.random,
+            (res.total ? res.archives.length < res.total : res.archives.length >= 1),
         );
         setLoading(false);
       })
@@ -107,7 +119,7 @@ export function Library() {
       active = false;
       controller.abort();
     };
-  }, [queryKey, controls.q, controls.category, controls.sort, controls.sortdir, controls.newonly, controls.random]);
+  }, [queryKey, controls.q, controls.category, controls.sort, controls.sortdir, controls.newonly]);
 
   // Load the next page (append).
   const loadMore = useCallback(async () => {
@@ -171,7 +183,6 @@ export function Library() {
       if (merged.sort && merged.sort !== 'date_added') p.set('sort', merged.sort);
       if (merged.sortdir && merged.sortdir !== 'desc') p.set('sortdir', merged.sortdir);
       if (merged.newonly) p.set('newonly', '1');
-      if (merged.random) p.set('random', '1');
       setParams(p);
     },
     [controls, setParams],
@@ -179,7 +190,12 @@ export function Library() {
 
   return (
     <div className="library">
-      <SearchBar controls={controls} categories={categories} onChange={updateControls} />
+      <SearchBar
+        controls={controls}
+        categories={categories}
+        onChange={updateControls}
+        onRandom={onRandom}
+      />
 
       {error && <ErrorBanner error={error} onRetry={() => updateControls({})} />}
 

@@ -233,7 +233,7 @@ class AppConfig(Base):
 class AuthCredential(Base):
     __tablename__ = "auth_credential"
 
-    role: Mapped[str] = mapped_column(String(8), primary_key=True)  # "owner" | "reader"
+    role: Mapped[str] = mapped_column(String(8), primary_key=True)  # "owner" (single-user)
     passcode_hash: Mapped[str | None] = mapped_column(Text)
     api_key_hash: Mapped[str | None] = mapped_column(Text, index=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -247,6 +247,6 @@ class AuthSession(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     token_hash: Mapped[str] = mapped_column(Text, index=True, unique=True)
-    role: Mapped[str] = mapped_column(String(8))  # "owner" | "reader"
+    role: Mapped[str] = mapped_column(String(8))  # "owner" (single-user)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
     last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)

@@ -1,8 +1,8 @@
-// Minimal i18n-ready strings module.
-//
-// Full Crowdin wiring is out of scope (spec §5.7 / §6.2). This provides a
-// single dictionary keyed by string id and a `t()` lookup, structured so a
-// second locale can be dropped in later without touching call sites.
+// Minimal i18n module: a dictionary per locale, a `t()` lookup, and a
+// persisted locale. Switching locale (Settings → Language) persists the choice
+// and reloads the app so every `t()` call site re-evaluates.
+
+import { lsGet, lsSet } from '../lib/storage';
 
 export type Locale = 'en' | 'zh-Hans';
 
@@ -22,6 +22,13 @@ const en: Dict = {
   'auth.unlocking': 'Unlocking…',
   'auth.error': 'Incorrect passcode',
   'auth.locked': 'Locked',
+  'auth.firstRun.title': 'First run',
+  'auth.firstRun.body':
+    'A passcode was generated during setup (shown in the terminal or container logs). You can keep it, or generate a new one now and see it here once.',
+  'auth.firstRun.keep': 'Keep current passcode',
+  'auth.firstRun.new': 'Generate new passcode',
+  'auth.firstRun.generated': 'Your new passcode — store it now, it is shown only once:',
+  'auth.firstRun.done': 'Log in above with your passcode.',
 
   'library.search': 'Search… (namespace:value, comma-separated)',
   'library.sort.title': 'Title',
@@ -36,6 +43,7 @@ const en: Dict = {
   'library.read': 'Read',
   'library.loading': 'Loading…',
   'library.results': 'results',
+  'library.randomEmpty': 'The library is empty.',
 
   'detail.read': 'Read',
   'detail.continue': 'Continue',
@@ -43,17 +51,24 @@ const en: Dict = {
   'detail.downloadFile': 'Download file',
   'detail.delete': 'Delete',
   'detail.tags': 'Tags',
+  'detail.editTags': 'Edit tags',
+  'detail.editTags.hint':
+    'One tag per line (or comma-separated), in namespace:value form — e.g. artist:someone. Saving replaces all tags.',
+  'detail.editTags.saved': 'Tags saved.',
   'detail.language': 'Language',
   'detail.rating': 'Rating',
+  'detail.rating.saved': 'Rating saved.',
   'detail.pages': 'Pages',
   'detail.comments': 'Comments',
   'detail.preview': 'Preview',
   'detail.similar': 'Similar',
   'detail.sameSeries': 'Same series',
-  'detail.favorites': 'Favorites',
-  'detail.addFavList': 'New list…',
+  'detail.favorite': 'Favorite',
+  'detail.favorited': 'Favorited',
   'detail.noComments': 'No comments.',
-  'detail.confirmDelete': 'Delete this archive permanently?',
+  'detail.confirmDelete':
+    'Delete this archive permanently? The file on disk is deleted as well.',
+  'detail.deleted': 'Archive deleted.',
   'detail.fetchMeta': 'Fetch metadata',
   'detail.fetchMeta.plugin': 'Source',
   'detail.fetchMeta.url': 'Gallery URL (optional)',
@@ -67,6 +82,7 @@ const en: Dict = {
   'detail.fetchMeta.running': 'Fetching…',
   'detail.fetchMeta.added': 'tags added',
   'detail.fetchMeta.noNew': 'No new tags.',
+  'detail.fetchMeta.comments': 'comments',
 
   'reader.loading': 'Loading…',
   'reader.failed': 'Failed to load',
@@ -112,24 +128,28 @@ const en: Dict = {
   'settings.subtitle': 'Server administration and client preferences',
   'settings.config': 'Configuration',
   'settings.save': 'Save',
+  'settings.saved': 'Saved.',
   'settings.scan': 'Scan library',
   'settings.regen': 'Regenerate thumbnails',
   'settings.prewarm': 'Prewarm page thumbnails',
   'settings.prewarm.hint':
     'Pre-generate every page-grid thumbnail in the background so detail pages open instantly',
+  'settings.started': 'started.',
   'settings.upload': 'Upload archive',
+  'settings.uploaded': 'Uploaded.',
   'settings.plugins': 'Plugins',
   'settings.theme': 'Theme',
   'settings.theme.dark': 'Dark',
   'settings.theme.light': 'Light',
+  'settings.language': 'Language',
   'settings.autolock': 'Auto-lock idle timeout',
   'settings.autolock.off': 'Off',
   'settings.minutes': 'min',
   'settings.maintenance': 'Maintenance',
   'settings.section.appearance': 'Appearance',
-  'settings.section.appearance.sub': 'Theme and auto-lock',
+  'settings.section.appearance.sub': 'Theme, language and auto-lock',
   'settings.section.security': 'Security',
-  'settings.section.security.sub': 'Owner and reader passcodes',
+  'settings.section.security.sub': 'Owner passcode',
   'settings.section.library': 'Library',
   'settings.section.library.sub': 'Scan, thumbnails and uploads',
   'settings.section.plugins.sub': 'Metadata sources, downloaders and logins',
@@ -137,6 +157,13 @@ const en: Dict = {
   'settings.section.advanced.sub': 'Raw server configuration (JSON)',
   'settings.advanced.warning':
     'Edits the server configuration directly — invalid values can break downloads or scanning.',
+  'settings.passcode.current': 'Current passcode',
+  'settings.passcode.new': 'New passcode',
+  'settings.passcode.confirm': 'Confirm new passcode',
+  'settings.passcode.update': 'Update passcode',
+  'settings.passcode.changed': 'Passcode changed.',
+  'settings.passcode.tooShort': 'New passcode must be at least 4 characters.',
+  'settings.passcode.mismatch': 'The two new-passcode fields do not match.',
 
   'plugins.type.metadata': 'Metadata sources',
   'plugins.type.download': 'Downloaders',
@@ -150,28 +177,195 @@ const en: Dict = {
   'common.retry': 'Retry',
   'common.error': 'Something went wrong.',
   'common.owner': 'owner',
-  'common.reader': 'reader',
   'common.back': 'Back',
+};
+
+const zhHans: Dict = {
+  'app.name': 'MangaCouch',
+  'nav.library': '书库',
+  'nav.downloads': '下载',
+  'nav.settings': '设置',
+  'nav.lock': '锁定',
+
+  'auth.title': 'MangaCouch',
+  'auth.subtitle': '输入密码以继续',
+  'auth.passcode': '密码',
+  'auth.unlock': '解锁',
+  'auth.unlocking': '解锁中…',
+  'auth.error': '密码错误',
+  'auth.locked': '已锁定',
+  'auth.firstRun.title': '首次运行',
+  'auth.firstRun.body':
+    '初始化时已生成一个密码（显示在终端或容器日志中）。你可以保留它，或现在生成一个新密码并在此处查看一次。',
+  'auth.firstRun.keep': '保留当前密码',
+  'auth.firstRun.new': '生成新密码',
+  'auth.firstRun.generated': '你的新密码 — 请立即保存，它只显示这一次：',
+  'auth.firstRun.done': '请在上方使用密码登录。',
+
+  'library.search': '搜索…（namespace:value，逗号分隔）',
+  'library.sort.title': '标题',
+  'library.sort.date_added': '添加日期',
+  'library.sort.lastread': '最近阅读',
+  'library.allCategories': '全部分类',
+  'library.random': '随机',
+  'library.newonly': '仅未读',
+  'library.empty': '没有找到档案。',
+  'library.loadMore': '加载更多',
+  'library.pages': '页',
+  'library.read': '已读',
+  'library.loading': '加载中…',
+  'library.results': '个结果',
+  'library.randomEmpty': '书库是空的。',
+
+  'detail.read': '阅读',
+  'detail.continue': '继续阅读',
+  'detail.download': '来源',
+  'detail.downloadFile': '下载文件',
+  'detail.delete': '删除',
+  'detail.tags': '标签',
+  'detail.editTags': '编辑标签',
+  'detail.editTags.hint':
+    '每行一个标签（或逗号分隔），格式为 namespace:value，例如 artist:someone。保存后将替换全部标签。',
+  'detail.editTags.saved': '标签已保存。',
+  'detail.language': '语言',
+  'detail.rating': '评分',
+  'detail.rating.saved': '评分已保存。',
+  'detail.pages': '页数',
+  'detail.comments': '评论',
+  'detail.preview': '预览',
+  'detail.similar': '相似作品',
+  'detail.sameSeries': '同一系列',
+  'detail.favorite': '收藏',
+  'detail.favorited': '已收藏',
+  'detail.noComments': '暂无评论。',
+  'detail.confirmDelete': '永久删除此档案？磁盘上的文件也会被删除。',
+  'detail.deleted': '档案已删除。',
+  'detail.fetchMeta': '获取元数据',
+  'detail.fetchMeta.plugin': '来源',
+  'detail.fetchMeta.url': '画廊链接（可选）',
+  'detail.fetchMeta.urlHint':
+    '粘贴 nhentai / hitomi / e-hentai 画廊链接，或留空以根据来源标签、文件名或标题自动检测。',
+  'detail.fetchMeta.mode': '标签',
+  'detail.fetchMeta.merge': '与现有标签合并',
+  'detail.fetchMeta.replace': '替换现有标签',
+  'detail.fetchMeta.setTitle': '更新标题',
+  'detail.fetchMeta.run': '获取',
+  'detail.fetchMeta.running': '获取中…',
+  'detail.fetchMeta.added': '个新标签',
+  'detail.fetchMeta.noNew': '没有新标签。',
+  'detail.fetchMeta.comments': '条评论',
+
+  'reader.loading': '加载中…',
+  'reader.failed': '加载失败',
+  'reader.retry': '重试',
+  'reader.loadAll': '加载全部图片',
+  'reader.settings': '阅读设置',
+  'reader.mode': '模式',
+  'reader.mode.paged': '翻页',
+  'reader.mode.scroll': '条漫',
+  'reader.direction': '方向',
+  'reader.direction.ltr': '从左到右',
+  'reader.direction.rtl': '从右到左（漫画）',
+  'reader.double': '双页',
+  'reader.fit': '适应',
+  'reader.fit.width': '宽度',
+  'reader.fit.height': '高度',
+  'reader.fit.container': '屏幕',
+  'reader.fit.original': '原始大小',
+  'reader.fullscreen': '全屏',
+  'reader.autoplay': '自动播放',
+  'reader.preload': '预加载',
+  'reader.bookmark': '书签',
+  'reader.bookmarks': '书签列表',
+  'reader.page': '页',
+  'reader.close': '关闭',
+  'reader.theme': '主题',
+  'reader.group.layout': '布局',
+  'reader.group.display': '显示',
+  'reader.group.playback': '播放',
+
+  'downloads.title': '下载',
+  'downloads.url': '画廊链接（e-hentai / exhentai）',
+  'downloads.submit': '下载',
+  'downloads.checkBalance': '查询 GP',
+  'downloads.balance': 'GP 余额',
+  'downloads.cost': '费用',
+  'downloads.jobs': '任务',
+  'downloads.noJobs': '没有下载任务。',
+  'downloads.priority': '优先级',
+  'downloads.state': '状态',
+
+  'settings.title': '设置',
+  'settings.subtitle': '服务器管理与客户端偏好',
+  'settings.config': '配置',
+  'settings.save': '保存',
+  'settings.saved': '已保存。',
+  'settings.scan': '扫描书库',
+  'settings.regen': '重新生成缩略图',
+  'settings.prewarm': '预生成页面缩略图',
+  'settings.prewarm.hint': '在后台预生成所有页面缩略图，使详情页即刻打开',
+  'settings.started': '已开始。',
+  'settings.upload': '上传档案',
+  'settings.uploaded': '已上传。',
+  'settings.plugins': '插件',
+  'settings.theme': '主题',
+  'settings.theme.dark': '深色',
+  'settings.theme.light': '浅色',
+  'settings.language': '语言',
+  'settings.autolock': '闲置自动锁定',
+  'settings.autolock.off': '关闭',
+  'settings.minutes': '分钟',
+  'settings.maintenance': '维护',
+  'settings.section.appearance': '外观',
+  'settings.section.appearance.sub': '主题、语言与自动锁定',
+  'settings.section.security': '安全',
+  'settings.section.security.sub': '所有者密码',
+  'settings.section.library': '书库',
+  'settings.section.library.sub': '扫描、缩略图与上传',
+  'settings.section.plugins.sub': '元数据来源、下载器与登录',
+  'settings.section.advanced': '高级',
+  'settings.section.advanced.sub': '原始服务器配置（JSON）',
+  'settings.advanced.warning': '直接编辑服务器配置 — 非法值可能破坏下载或扫描功能。',
+  'settings.passcode.current': '当前密码',
+  'settings.passcode.new': '新密码',
+  'settings.passcode.confirm': '确认新密码',
+  'settings.passcode.update': '更新密码',
+  'settings.passcode.changed': '密码已更改。',
+  'settings.passcode.tooShort': '新密码至少需要 4 个字符。',
+  'settings.passcode.mismatch': '两次输入的新密码不一致。',
+
+  'plugins.type.metadata': '元数据来源',
+  'plugins.type.download': '下载器',
+  'plugins.type.login': '登录',
+  'plugins.type.script': '脚本',
+  'plugins.configure': '配置',
+
+  'common.cancel': '取消',
+  'common.save': '保存',
+  'common.close': '关闭',
+  'common.retry': '重试',
+  'common.error': '出了点问题。',
+  'common.owner': '所有者',
+  'common.back': '返回',
 };
 
 const dictionaries: Record<Locale, Dict> = {
   en,
-  // Stub second locale — falls through to English for missing keys.
-  'zh-Hans': {
-    'nav.library': '书库',
-    'nav.downloads': '下载',
-    'nav.settings': '设置',
-    'nav.lock': '锁定',
-    'auth.unlock': '解锁',
-    'reader.loadAll': '加载全部图片',
-    'reader.retry': '重试',
-  },
+  'zh-Hans': zhHans,
 };
 
-let current: Locale = 'en';
+const LOCALE_KEY = 'locale';
 
+function normalizeLocale(value: unknown): Locale {
+  return value === 'zh-Hans' || value === 'zh' || value === 'zh-CN' ? 'zh-Hans' : 'en';
+}
+
+let current: Locale = normalizeLocale(lsGet<string>(LOCALE_KEY, 'en'));
+
+/** Persist the locale. Callers that need every t() site refreshed reload the app. */
 export function setLocale(locale: Locale): void {
   current = locale;
+  lsSet(LOCALE_KEY, locale);
 }
 
 export function getLocale(): Locale {

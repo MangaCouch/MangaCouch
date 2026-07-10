@@ -3,7 +3,7 @@
 A caller is identified by ``Authorization: Bearer <base64(apiKey)>``. Media routes (page /
 thumbnail / OPDS — ``<img>`` tags and OPDS readers can't set headers) additionally accept a
 ``?key=`` query param via the ``*_media`` dependencies; ordinary API routes do **not**, so keys
-don't leak into proxy logs and browser history. The key may be a long-lived owner/reader API key
+don't leak into proxy logs and browser history. The key may be the long-lived owner API key
 or a passcode-login session token (idle-expired server-side).
 """
 
@@ -69,11 +69,11 @@ def _identity_for_token(token: str | None, db: Session) -> Identity:
             AuthCredential.api_key_hash == digest, AuthCredential.enabled.is_(True)
         )
     )
-    if cred is not None:
-        return Identity(Role(cred.role))
+    if cred is not None and cred.role == Role.OWNER.value:
+        return Identity(Role.OWNER)
 
     sess = db.scalar(select(AuthSession).where(AuthSession.token_hash == digest))
-    if sess is not None:
+    if sess is not None and sess.role == Role.OWNER.value:
         now = datetime.now(UTC)
         last = sess.last_seen if sess.last_seen.tzinfo else sess.last_seen.replace(tzinfo=UTC)
         if now - last > SESSION_IDLE_MAX:
@@ -81,7 +81,7 @@ def _identity_for_token(token: str | None, db: Session) -> Identity:
             return Identity(None)
         if now - last > _LAST_SEEN_WRITE_INTERVAL:
             sess.last_seen = now
-        return Identity(Role(sess.role))
+        return Identity(Role.OWNER)
     return Identity(None)
 
 
@@ -94,14 +94,14 @@ def current_identity_media(request: Request, db: Session = Depends(get_db)) -> I
     return _identity_for_token(_extract_token(request, allow_query=True), db)
 
 
-def require_reader(identity: Identity = Depends(current_identity)) -> Identity:
-    """Any authenticated role (owner or reader)."""
+def require_auth(identity: Identity = Depends(current_identity)) -> Identity:
+    """Any authenticated caller (single-user model: authenticated == owner)."""
     if not identity.is_authenticated:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "authentication required")
     return identity
 
 
-def require_reader_media(identity: Identity = Depends(current_identity_media)) -> Identity:
+def require_auth_media(identity: Identity = Depends(current_identity_media)) -> Identity:
     if not identity.is_authenticated:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "authentication required")
     return identity

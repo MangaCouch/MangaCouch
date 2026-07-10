@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from ...core.archives import open_archive
 from ...db.models import Archive
 from ...state import AppContext
-from ..deps import get_context, get_db, require_reader_media
+from ..deps import get_context, get_db, require_auth_media
 
 router = APIRouter(prefix="/api/opds", tags=["opds"])
 
@@ -72,7 +72,7 @@ def opds_root(
     request: Request,
     q: str | None = None,
     limit: int = Query(60, ge=1, le=200),
-    _: object = Depends(require_reader_media),
+    _: object = Depends(require_auth_media),
     db: Session = Depends(get_db),
 ) -> Response:
     stmt = select(Archive).order_by(Archive.added_at.desc()).limit(limit)
@@ -93,7 +93,7 @@ def opds_root(
 def opds_entry(
     archive_id: str,
     request: Request,
-    _: object = Depends(require_reader_media),
+    _: object = Depends(require_auth_media),
     db: Session = Depends(get_db),
 ) -> Response:
     arch = db.get(Archive, archive_id)
@@ -111,7 +111,7 @@ def opds_entry(
 def opds_pse(
     archive_id: str,
     page: int = Query(1, ge=1),
-    _: object = Depends(require_reader_media),
+    _: object = Depends(require_auth_media),
     ctx: AppContext = Depends(get_context),
     db: Session = Depends(get_db),
 ) -> Response:

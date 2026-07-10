@@ -26,7 +26,7 @@ from ...core.thumbnails import (
 from ...db.models import Archive, ArchiveTag, History, Progress, Tag
 from ...search import parse_query, search_archives
 from ...state import AppContext
-from ..deps import get_context, get_db, require_owner, require_reader, require_reader_media
+from ..deps import get_context, get_db, require_auth, require_auth_media, require_owner
 from ..serialization import related_archives, serialize_archive, serialize_card
 
 router = APIRouter(prefix="/api", tags=["library"])
@@ -65,11 +65,15 @@ def list_archives(
     sortdir: str = "desc",
     page: int = 1,
     page_size: int = Query(50, ge=1, le=500),
-    _: object = Depends(require_reader),
+    newonly: bool = False,
+    _: object = Depends(require_auth),
     ctx: AppContext = Depends(get_context),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
     query_text = q or ""
+    # The PWA sends `newonly` as its own param; it is sugar for the query filter token.
+    if newonly:
+        query_text = f"{query_text},newonly" if query_text else "newonly"
     static_category_id = None
     if category is not None:
         from ...db.models import Category
@@ -99,10 +103,34 @@ def list_archives(
     }
 
 
+@router.get("/archives/random")
+def random_archive(
+    _: object = Depends(require_auth),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    """A random *new* (never-opened) archive when one exists, else any random archive."""
+    from sqlalchemy import func
+
+    unread = (
+        select(Archive.id)
+        .outerjoin(Progress, Progress.archive_id == Archive.id)
+        .where(func.coalesce(Progress.page, 0) == 0)
+        .order_by(func.random())
+        .limit(1)
+    )
+    archive_id = db.scalar(unread)
+    fresh = archive_id is not None
+    if archive_id is None:
+        archive_id = db.scalar(select(Archive.id).order_by(func.random()).limit(1))
+    if archive_id is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "library is empty")
+    return {"id": archive_id, "new": fresh}
+
+
 @router.get("/archives/{archive_id}")
 def get_archive(
     archive_id: str,
-    _: object = Depends(require_reader),
+    _: object = Depends(require_auth),
     ctx: AppContext = Depends(get_context),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
@@ -122,7 +150,7 @@ _ARCHIVE_MIMES = {
 @router.get("/archives/{archive_id}/download")
 def download_archive(
     archive_id: str,
-    _: object = Depends(require_reader_media),
+    _: object = Depends(require_auth_media),
     ctx: AppContext = Depends(get_context),
     db: Session = Depends(get_db),
 ) -> FileResponse:
@@ -144,7 +172,7 @@ def download_archive(
 @router.get("/archives/{archive_id}/pages")
 def list_pages(
     archive_id: str,
-    _: object = Depends(require_reader),
+    _: object = Depends(require_auth),
     ctx: AppContext = Depends(get_context),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
@@ -173,7 +201,7 @@ def _guess_mime(path: str) -> str:
 def get_page(
     archive_id: str,
     path: str,
-    _: object = Depends(require_reader_media),
+    _: object = Depends(require_auth_media),
     ctx: AppContext = Depends(get_context),
     db: Session = Depends(get_db),
 ) -> Response:
@@ -204,7 +232,7 @@ def get_page(
 def get_thumbnail(
     archive_id: str,
     page: int | None = None,
-    _: object = Depends(require_reader_media),
+    _: object = Depends(require_auth_media),
     ctx: AppContext = Depends(get_context),
     db: Session = Depends(get_db),
 ) -> Response:
@@ -324,7 +352,7 @@ def _resync_sidecar(ctx: AppContext, arch: Archive, tag_strings: list[str]) -> N
 def set_progress(
     archive_id: str,
     page: int,
-    _: object = Depends(require_reader),
+    _: object = Depends(require_auth),
     ctx: AppContext = Depends(get_context),
     db: Session = Depends(get_db),
 ) -> dict[str, Any]:
@@ -342,10 +370,55 @@ def set_progress(
     return {"archive_id": archive_id, "page": prog.page, "page_count": arch.page_count}
 
 
+# -- favorite (simple boolean; stored as membership of one implicit default list) ---------------
+
+_DEFAULT_FAVORITES = "Favorites"
+
+
+def _default_favorite_list(db: Session):
+    from ...db.models import FavoriteList
+
+    fl = db.scalar(select(FavoriteList).order_by(FavoriteList.position, FavoriteList.id).limit(1))
+    if fl is None:
+        fl = FavoriteList(name=_DEFAULT_FAVORITES, position=0)
+        db.add(fl)
+        db.flush()
+    return fl
+
+
+@router.put("/archives/{archive_id}/favorite")
+def set_favorite(
+    archive_id: str,
+    _: object = Depends(require_auth),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    from ...db.models import Favorite
+
+    _load(db, archive_id)
+    fl = _default_favorite_list(db)
+    if db.get(Favorite, {"list_id": fl.id, "archive_id": archive_id}) is None:
+        db.add(Favorite(list_id=fl.id, archive_id=archive_id))
+    return {"archive_id": archive_id, "favorite": True}
+
+
+@router.delete("/archives/{archive_id}/favorite")
+def unset_favorite(
+    archive_id: str,
+    _: object = Depends(require_auth),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    from sqlalchemy import delete as sql_delete
+
+    from ...db.models import Favorite
+
+    db.execute(sql_delete(Favorite).where(Favorite.archive_id == archive_id))
+    return {"archive_id": archive_id, "favorite": False}
+
+
 @router.delete("/archives/{archive_id}")
 def delete_archive(
     archive_id: str,
-    delete_file: bool = False,
+    delete_file: bool = True,
     _: object = Depends(require_owner),
     ctx: AppContext = Depends(get_context),
     db: Session = Depends(get_db),

@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ...db.models import Favorite, FavoriteList
-from ..deps import get_db, require_owner, require_reader
+from ..deps import get_db, require_auth, require_owner
 
 router = APIRouter(prefix="/api/favorites", tags=["favorites"])
 
@@ -34,7 +34,7 @@ def _serialize(db: Session, fl: FavoriteList) -> dict:
 
 
 @router.get("/lists")
-def list_lists(_: object = Depends(require_reader), db: Session = Depends(get_db)) -> dict:
+def list_lists(_: object = Depends(require_auth), db: Session = Depends(get_db)) -> dict:
     lists = db.scalars(select(FavoriteList).order_by(FavoriteList.position, FavoriteList.id)).all()
     return {"lists": [_serialize(db, fl) for fl in lists]}
 

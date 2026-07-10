@@ -81,7 +81,11 @@ class PluginRegistry:
         for ep in eps:
             try:
                 obj = ep.load()
-                self.register(obj() if inspect.isclass(obj) else obj)
+                plugin = obj() if inspect.isclass(obj) else obj
+                if isinstance(plugin, BasePlugin):
+                    self.register(plugin)
+                else:
+                    log.warning("entry point %s is not a BasePlugin — skipped", ep.name)
             except Exception:
                 log.exception("failed to load plugin entry point %s", ep.name)
 
