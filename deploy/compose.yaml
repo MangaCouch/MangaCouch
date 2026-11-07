@@ -1,0 +1,19 @@
+services:
+  mangacouch:
+    image: ghcr.io/mangacouch/mangacouch:${MANGACOUCH_VERSION:-latest}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    user: "${MANGACOUCH_UID:-10001}:${MANGACOUCH_GID:-10001}"
+    ports:
+      - "${MANGACOUCH_PORT:-8780}:8780"
+    volumes:
+      - ./state:/data/state
+      - ./books:/data/books
+    environment:
+      MANGACOUCH_ORIGIN: ${MANGACOUCH_ORIGIN:?Set the URL used by clients}
+      MANGACOUCH_ALLOWED_HOSTS: ${MANGACOUCH_ALLOWED_HOSTS:-}
+      MANGACOUCH_UPLOAD_BYTES: ${MANGACOUCH_UPLOAD_BYTES:-}
+      MANGACOUCH_MAX_BYTES: ${MANGACOUCH_MAX_BYTES:-}
+    restart: unless-stopped
+    stop_grace_period: 45s

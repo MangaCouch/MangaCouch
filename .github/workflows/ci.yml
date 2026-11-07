@@ -1,0 +1,76 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+permissions:
+  contents: read
+jobs:
+  check:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.12", "3.13", "3.14", "3.15"]
+    timeout-minutes: 20
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          python-version: ${{ matrix.python }}
+      - run: uv sync --locked
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm --prefix web ci
+      - run: npm --prefix web run lint
+      - run: npm --prefix web run build
+      - name: Committed web bundle matches web/src
+        shell: bash
+        run: |
+          git diff --exit-code -- src/mangacouch/web
+          changes="$(git status --porcelain -- src/mangacouch/web)"
+          if [[ -n "$changes" ]]; then
+            printf 'src/mangacouch/web differs from a fresh build; run "npm --prefix web run build" and commit the result:\n%s\n' "$changes" >&2
+            exit 1
+          fi
+      - run: uv run ruff check src tests
+      - run: npm --prefix web run typecheck:python
+      - run: uv run pytest -q
+      - name: Web unit tests
+        if: runner.os == 'Linux' && matrix.python == '3.15'
+        run: npm --prefix web test
+      - name: React and ASGI integration
+        shell: bash
+        run: MANGACOUCH_TEST_PYTHON="$(uv run python -c 'import sys; print(sys.executable)')" npm --prefix web run test:integration
+      - name: Install browser for acceptance tests
+        if: runner.os == 'Linux' && matrix.python == '3.15'
+        run: npx --prefix web playwright install --with-deps chromium
+      - name: Browser acceptance
+        if: runner.os == 'Linux' && matrix.python == '3.15'
+        run: npm --prefix web run test:browser:ci
+      - name: Extension tests
+        if: runner.os == 'Linux' && matrix.python == '3.15'
+        run: node --test --test-timeout=60000 extension/*.test.mjs
+      - run: uv build
+      - run: uv run python scripts/check_packages.py dist
+      - run: uv export --frozen --no-dev --no-hashes --no-emit-project --no-annotate --no-header --output-file dist/constraints.txt
+      - name: Install the release with its locked dependencies
+        shell: bash
+        run: |
+          uv venv release-env
+          if [[ "${RUNNER_OS}" == "Windows" ]]; then
+            release_python=release-env/Scripts/python.exe
+          else
+            release_python=release-env/bin/python
+          fi
+          uv pip install --python "$release_python" -c dist/constraints.txt dist/*.whl
+          "$release_python" scripts/check_installation.py

@@ -1,0 +1,229 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import unicodedata
+from datetime import datetime
+from pathlib import PurePosixPath, PureWindowsPath
+from typing import Annotated, Literal, Self
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from .errors import InvalidInput
+
+MAX_METADATA_BYTES = 256 * 1024
+SHA256 = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
+Text = Annotated[str, Field(max_length=4096)]
+FieldName = Literal[
+    "title",
+    "original_title",
+    "language",
+    "translated",
+    "work_type",
+    "tags",
+    "source",
+    "uploader",
+    "uploaded_at",
+    "source_rating",
+    "declared_page_count",
+    "declared_byte_size",
+    "parent",
+    "newer_versions",
+]
+
+
+# Tag namespaces that a bare `namespace:value` search term filters on (E-Hentai/nHentai sets).
+TAG_NAMESPACES = frozenset(
+    {
+        "artist",
+        "character",
+        "cosplayer",
+        "female",
+        "group",
+        "language",
+        "location",
+        "male",
+        "mixed",
+        "other",
+        "parody",
+        "reclass",
+        "tag",
+        "temp",
+    }
+)
+
+
+def normalized(text: str) -> str:
+    return unicodedata.normalize("NFKC", text).casefold()
+
+
+def canonical_json(value: object) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+
+
+class Model(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        strict=True,
+        validate_assignment=True,
+        revalidate_instances="never",
+        hide_input_in_errors=True,
+    )
+
+
+class Tag(Model):
+    namespace: Annotated[str, Field(max_length=128)] = "other"
+    value: Annotated[str, Field(min_length=1, max_length=512)]
+
+    @field_validator("namespace", mode="before")
+    @classmethod
+    def other_namespace(cls, value):
+        return value.strip() or "other" if isinstance(value, str) else value
+
+
+class Source(Model):
+    site: Literal["ehentai", "exhentai", "nhentai"]
+    gallery_id: Annotated[int, Field(gt=0, le=2**63 - 1)]
+    gallery_token: Annotated[str, Field(pattern=r"^[a-zA-Z0-9]{1,64}$")] | None = None
+
+    @model_validator(mode="after")
+    def check_token(self) -> Self:
+        if (self.site == "nhentai") != (self.gallery_token is None):
+            raise ValueError("EH requires a gallery token; nHentai has no gallery token")
+        return self
+
+    @property
+    def url(self) -> str:
+        if self.site == "nhentai":
+            return f"https://nhentai.net/g/{self.gallery_id}/"
+        host = "e-hentai.org" if self.site == "ehentai" else "exhentai.org"
+        return f"https://{host}/g/{self.gallery_id}/{self.gallery_token}/"
+
+
+class SourceRating(Model):
+    average: Annotated[float, Field(ge=0, le=5, allow_inf_nan=False)]
+    count: Annotated[int, Field(ge=0)] | None = None
+
+
+class SourceComment(Model):
+    source: Source
+    comment_id: Annotated[str, Field(min_length=1, max_length=128)]
+    author: Annotated[str, Field(max_length=256)] = ""
+    body: Annotated[str, Field(max_length=8192)]
+    posted_at: int | None = None
+    score: int | None = None
+    is_uploader: bool = False
+
+
+class SourceNotes(Model):
+    source: Source
+    tags: Annotated[list[Tag], Field(max_length=2048)] = Field(default_factory=list)
+    fetched_at: int
+    comments_sort: Literal["source", "newest"] = "source"
+    comments_pages: Annotated[int, Field(ge=0, le=5)] = 0
+    comments_complete: bool = False
+
+
+class Metadata(Model):
+    title: Text | None = None
+    original_title: Text | None = None
+    language: Annotated[str, Field(max_length=128)] | None = None
+    translated: bool | None = None
+    work_type: Annotated[str, Field(max_length=128)] | None = None
+    tags: Annotated[list[Tag], Field(max_length=2048)] = Field(default_factory=list)
+    source: Source | None = None
+    uploader: Annotated[str, Field(max_length=512)] | None = None
+    uploaded_at: Annotated[str, Field(max_length=40)] | None = None
+    source_rating: SourceRating | None = None
+    declared_page_count: Annotated[int, Field(gt=0)] | None = None
+    declared_byte_size: Annotated[int, Field(ge=0)] | None = None
+    parent: Source | None = None
+    newer_versions: Annotated[list[Source], Field(max_length=256)] = Field(default_factory=list)
+    field_sources: dict[FieldName, Literal["manual", "eze:info", "eze:full", "native", "online"]] = Field(
+        default_factory=dict
+    )
+    protected_fields: list[FieldName] = Field(default_factory=list)
+
+    @field_validator("uploaded_at")
+    @classmethod
+    def timestamp_has_timezone(cls, value: str | None) -> str | None:
+        if value is not None and datetime.fromisoformat(value).utcoffset() is None:
+            raise ValueError("Source timestamp requires an explicit timezone")
+        return value
+
+    @field_validator("tags")
+    @classmethod
+    def deduplicate_tags(cls, tags: list[Tag]) -> list[Tag]:
+        by_key = {(normalized(t.namespace), normalized(t.value)): t for t in reversed(tags)}
+        return [by_key[key] for key in sorted(by_key)]
+
+    @model_validator(mode="after")
+    def size_is_bounded(self) -> Self:
+        if len(canonical_json(self.model_dump(mode="json")).encode()) > MAX_METADATA_BYTES:
+            raise ValueError("Metadata exceeds the supported byte budget")
+        return self
+
+
+class Content(Model):
+    sha256: SHA256
+    format: Literal["cbz", "zip", "pdf"]
+    relative_path: Annotated[str, Field(min_length=1, max_length=4096)]
+    original_filename: Annotated[str, Field(min_length=1, max_length=4096)]
+    byte_size: Annotated[int, Field(gt=0)]
+    page_count: Annotated[int, Field(gt=0)]
+
+    @field_validator("relative_path")
+    @classmethod
+    def relative_file_only(cls, value: str) -> str:
+        posix, windows = PurePosixPath(value), PureWindowsPath(value)
+        if (
+            posix.is_absolute()
+            or windows.drive
+            or windows.root
+            or "\\" in value
+            or any(p in {"", ".", ".."} for p in value.split("/"))
+            or any(ord(c) < 32 for c in value)
+        ):
+            raise ValueError("Expected a relative library file path")
+        return value
+
+    @property
+    def managed_path(self) -> str:
+        suffix = "pdf" if self.format == "pdf" else "cbz"
+        return f"{self.sha256[:2]}/{self.sha256}.{suffix}"
+
+
+class PersonalState(Model):
+    rating: Annotated[float, Field(ge=0, le=5, multiple_of=0.5, allow_inf_nan=False)] | None = None
+    resume_page: Annotated[int, Field(ge=0)] | None = None
+    completed: bool = False
+    bookmarks: Annotated[list[Annotated[int, Field(ge=0)]], Field(max_length=1000)] = Field(
+        default_factory=list
+    )
+
+    @field_validator("bookmarks")
+    @classmethod
+    def unique_bookmarks(cls, bookmarks: list[int]) -> list[int]:
+        return sorted(set(bookmarks))
+
+
+class NativeSidecar(Model):
+    schema_name: Literal["mangacouch.native/1"] = Field(alias="schema")
+    content_sha256: SHA256
+    revision: Annotated[int, Field(ge=1)]
+    metadata: Metadata
+
+    def canonical_bytes(self) -> bytes:
+        return canonical_json(self.model_dump(mode="json", by_alias=True)).encode("utf-8")
+
+    def semantic_hash(self) -> str:
+        return hashlib.sha256(self.canonical_bytes()).hexdigest()
+
+
+def read_native(data: bytes, expected_sha256: str) -> NativeSidecar:
+    if len(data) > MAX_METADATA_BYTES + 4096:
+        raise InvalidInput("Sidecar exceeds the supported byte budget")
+    sidecar = NativeSidecar.model_validate_json(data)
+    if sidecar.content_sha256 != expected_sha256:
+        raise InvalidInput("Sidecar belongs to different file content")
+    return sidecar

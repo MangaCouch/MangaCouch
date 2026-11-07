@@ -1,0 +1,99 @@
+[project]
+name = "mangacouch"
+version = "0.1.0"
+description = "MangaCouch personal comic library"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Zeyu Xia" }]
+requires-python = ">=3.12,<3.16"
+classifiers = [
+    "Environment :: Web Environment",
+    "Framework :: FastAPI",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
+    "Topic :: Multimedia :: Graphics :: Viewers",
+]
+dependencies = [
+    "pydantic>=2.14.3,<3",
+    "pyvips[binary]>=3.1,<4",
+    "pypdfium2>=5.15,<6",
+    "numpy>=2,<3",
+    "fastapi>=0.162,<1",
+    "starlette>=1.10,<2",
+    "uvicorn>=0.54,<1",
+    "argon2-cffi>=25.1,<26",
+    "python-multipart>=0.0.32,<1",
+    "httpx[socks]>=0.28,<1",
+    "cryptography>=50,<51",
+    "beautifulsoup4>=4.14,<5",
+]
+
+[project.urls]
+Homepage = "https://github.com/MangaCouch/MangaCouch"
+Repository = "https://github.com/MangaCouch/MangaCouch"
+Issues = "https://github.com/MangaCouch/MangaCouch/issues"
+
+[project.scripts]
+mangacouch = "mangacouch.__main__:main"
+
+[dependency-groups]
+dev = ["pytest>=9,<10", "pytest-timeout>=2.4,<3", "ruff>=0.17.4,<1"]
+# Standalone executables for releases; installed only with `uv sync --group freeze`.
+freeze = ["pyinstaller>=6.22,<7"]
+
+[build-system]
+requires = ["hatchling>=1.33,<2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mangacouch"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/schema", "/tests", "/scripts", "/web/src", "/web/public", "/web/tests", "/web/scripts", "/web/*.json", "/web/*.ts", "/web/*.mjs", "/web/*.html", "/pyproject.toml", "/uv.lock", "/LICENSE", "/README.md", "/README.zh-CN.md", "/docs", "/.env.example", "/extension", "/deploy"]
+exclude = [
+    "/deploy/exports",
+    "/deploy/state",
+    "/deploy/books",
+    "/dist",
+    "/config.toml",
+    "/.env",
+    "**/__pycache__",
+    "**/.pytest_cache",
+    "**/.ruff_cache",
+    "**/node_modules",
+    "**/*.sqlite*",
+    "**/*.key",
+    "**/*.cbz",
+    "**/*.zip",
+    "**/*.pdf",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra"
+faulthandler_timeout = 300
+timeout = 300
+timeout_method = "thread"
+filterwarnings = ["error::ResourceWarning"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 110
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["mangacouch"]
+
+[tool.pyright]
+include = ["src", "tests", "scripts", "deploy"]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="24 24 208 208">
+  <title>MangaCouch</title>
+  <defs>
+    <clipPath id="panel-window">
+      <rect x="42" y="38" width="172" height="180" rx="37"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#panel-window)">
+    <path d="M42 38H128L105 139H42Z" fill="#DD765C"/>
+    <path d="M142 38H214V115L121 137Z" fill="#E8B760"/>
+    <path d="M42 154L214 130V218H42Z" fill="#718C76"/>
+  </g>
+</svg>

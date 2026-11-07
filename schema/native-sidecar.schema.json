@@ -1,0 +1,351 @@
+{
+  "$comment": "Structural schema. The server also validates source tokens, timestamps, content identity and the 256 KiB metadata budget.",
+  "$defs": {
+    "Metadata": {
+      "additionalProperties": false,
+      "properties": {
+        "title": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Title"
+        },
+        "original_title": {
+          "anyOf": [
+            {
+              "maxLength": 4096,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Original Title"
+        },
+        "language": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Language"
+        },
+        "translated": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Translated"
+        },
+        "work_type": {
+          "anyOf": [
+            {
+              "maxLength": 128,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Work Type"
+        },
+        "tags": {
+          "items": {
+            "$ref": "#/$defs/Tag"
+          },
+          "maxItems": 2048,
+          "title": "Tags",
+          "type": "array"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "uploader": {
+          "anyOf": [
+            {
+              "maxLength": 512,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uploader"
+        },
+        "uploaded_at": {
+          "anyOf": [
+            {
+              "maxLength": 40,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Uploaded At"
+        },
+        "source_rating": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceRating"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "declared_page_count": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Declared Page Count"
+        },
+        "declared_byte_size": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Declared Byte Size"
+        },
+        "parent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Source"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "newer_versions": {
+          "items": {
+            "$ref": "#/$defs/Source"
+          },
+          "maxItems": 256,
+          "title": "Newer Versions",
+          "type": "array"
+        },
+        "field_sources": {
+          "additionalProperties": {
+            "enum": [
+              "manual",
+              "eze:info",
+              "eze:full",
+              "native",
+              "online"
+            ],
+            "type": "string"
+          },
+          "propertyNames": {
+            "enum": [
+              "title",
+              "original_title",
+              "language",
+              "translated",
+              "work_type",
+              "tags",
+              "source",
+              "uploader",
+              "uploaded_at",
+              "source_rating",
+              "declared_page_count",
+              "declared_byte_size",
+              "parent",
+              "newer_versions"
+            ]
+          },
+          "title": "Field Sources",
+          "type": "object"
+        },
+        "protected_fields": {
+          "items": {
+            "enum": [
+              "title",
+              "original_title",
+              "language",
+              "translated",
+              "work_type",
+              "tags",
+              "source",
+              "uploader",
+              "uploaded_at",
+              "source_rating",
+              "declared_page_count",
+              "declared_byte_size",
+              "parent",
+              "newer_versions"
+            ],
+            "type": "string"
+          },
+          "title": "Protected Fields",
+          "type": "array"
+        }
+      },
+      "title": "Metadata",
+      "type": "object"
+    },
+    "Source": {
+      "additionalProperties": false,
+      "properties": {
+        "site": {
+          "enum": [
+            "ehentai",
+            "exhentai",
+            "nhentai"
+          ],
+          "title": "Site",
+          "type": "string"
+        },
+        "gallery_id": {
+          "exclusiveMinimum": 0,
+          "maximum": 9223372036854775807,
+          "title": "Gallery Id",
+          "type": "integer"
+        },
+        "gallery_token": {
+          "anyOf": [
+            {
+              "pattern": "^[a-zA-Z0-9]{1,64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gallery Token"
+        }
+      },
+      "required": [
+        "site",
+        "gallery_id"
+      ],
+      "title": "Source",
+      "type": "object"
+    },
+    "SourceRating": {
+      "additionalProperties": false,
+      "properties": {
+        "average": {
+          "maximum": 5,
+          "minimum": 0,
+          "title": "Average",
+          "type": "number"
+        },
+        "count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Count"
+        }
+      },
+      "required": [
+        "average"
+      ],
+      "title": "SourceRating",
+      "type": "object"
+    },
+    "Tag": {
+      "additionalProperties": false,
+      "properties": {
+        "namespace": {
+          "default": "other",
+          "maxLength": 128,
+          "title": "Namespace",
+          "type": "string"
+        },
+        "value": {
+          "maxLength": 512,
+          "minLength": 1,
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value"
+      ],
+      "title": "Tag",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "mangacouch.native/1",
+      "title": "Schema",
+      "type": "string"
+    },
+    "content_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Content Sha256",
+      "type": "string"
+    },
+    "revision": {
+      "minimum": 1,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "metadata": {
+      "$ref": "#/$defs/Metadata"
+    }
+  },
+  "required": [
+    "schema",
+    "content_sha256",
+    "revision",
+    "metadata"
+  ],
+  "title": "NativeSidecar",
+  "type": "object"
+}

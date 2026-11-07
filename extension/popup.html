@@ -1,0 +1,39 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="style.css" />
+    <title>MangaCouch</title>
+  </head>
+  <body>
+    <main>
+      <header>
+        <strong>MangaCouch</strong
+        ><button
+          id="settings"
+          aria-label="Settings"
+          data-i18n-aria-label="settingsLabel"
+        >
+          ⚙
+        </button>
+      </header>
+      <p id="gallery"></p>
+      <fieldset id="choice" hidden>
+        <label
+          ><input type="radio" name="entry" value="find_eh" checked />
+          <span data-i18n="findEdition">Find an E(x)Hentai edition</span></label
+        ><label
+          ><input type="radio" name="entry" value="nh_direct" />
+          <span data-i18n="useNhentai"
+            >Download from nHentai (no E(x)Hentai edition)</span
+          ></label
+        >
+      </fieldset>
+      <button id="send" disabled data-i18n="addButton">Add to queue</button
+      ><button id="queue" data-i18n="queueButton">Open downloads</button>
+      <p id="status" role="status"></p>
+    </main>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

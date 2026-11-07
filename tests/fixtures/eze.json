@@ -1,0 +1,40 @@
+{
+  "gallery_info": {
+    "title": "Test translation",
+    "title_original": "試験作品",
+    "category": "Manga",
+    "language": "Chinese",
+    "translated": true,
+    "tags": {"language": ["chinese"], "parody": ["Test", "test"]},
+    "favorite_category": "DO_NOT_PERSIST_FAVORITE",
+    "upload_date": [2026, 1, 1, 0, 0, 0],
+    "source": {
+      "site": "exhentai",
+      "gid": 123,
+      "token": "abc123def0",
+      "parent_gallery": {"gid": 122, "token": "abc123def1"},
+      "newer_versions": [{"gid": 124, "token": "abc123def2"}],
+      "image_api_key": "DO_NOT_PERSIST_IMAGE_KEY"
+    }
+  },
+  "gallery_info_full": {
+    "gallery": {"gid": 123, "token": "abc123def0"},
+    "title": "Different source title",
+    "title_original": "試験作品",
+    "category": "Manga",
+    "language": "Chinese",
+    "translated": true,
+    "tags": {"language": ["chinese"], "parody": ["test"]},
+    "date_uploaded": 1767225600000,
+    "uploader": "Test uploader",
+    "rating": {"average": 4.25, "count": 12},
+    "image_count": 30,
+    "total_file_size_approx": 31457280,
+    "parent": {"gid": 122, "token": "abc123def1"},
+    "newer_versions": [{"gid": 124, "token": "abc123def2"}],
+    "favorites": "DO_NOT_PERSIST_FAVORITE_COUNT",
+    "archiver_key": "DO_NOT_PERSIST_ARCHIVER_KEY",
+    "thumbnail": "DO_NOT_PERSIST_TEMP_URL"
+  },
+  "unknown": {"payload": "DO_NOT_PERSIST_UNKNOWN"}
+}

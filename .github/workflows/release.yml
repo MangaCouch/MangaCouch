@@ -1,0 +1,223 @@
+name: Release
+# A pushed v* tag needs a passing CI matrix for its commit. The CI run from the push to main is reused
+# (waiting for it if it is still running); only a commit without one runs the matrix here.
+# Then every release format is built and smoke-checked:
+#   - the wheel, sdist, constraints file and zipped browser extension;
+#   - standalone executables that need no Python, for Linux x64/ARM64, Apple Silicon macOS and Windows x64;
+#   - the linux/amd64 + linux/arm64 container image.
+# Only after all of them pass is the image pushed to ghcr.io and the GitHub Release published.
+# workflow_dispatch is a dry run: it builds and checks the same files and uploads them as workflow
+# artifacts, without pushing the image or creating a release.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  IMAGE: ghcr.io/mangacouch/mangacouch
+jobs:
+  ci-status:
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    outputs:
+      reuse: ${{ steps.find.outputs.reuse }}
+    steps:
+      - name: Find a CI run for this commit
+        id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # Pull request runs test a merge with the base branch, not this commit, so only push and manual
+          # runs count. A later re-run of a failed CI run updates its conclusion here.
+          while :; do
+            runs="$(gh run list --workflow ci.yml --commit "$GITHUB_SHA" --limit 50 \
+              --json status,conclusion,event,url \
+              --jq '[.[] | select(.event == "push" or .event == "workflow_dispatch")]')"
+            if jq -e 'any(.conclusion == "success")' <<< "$runs" > /dev/null; then
+              echo "Reusing $(jq -r 'map(select(.conclusion == "success"))[0].url' <<< "$runs")"
+              echo "reuse=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            elif jq -e 'any(.status != "completed")' <<< "$runs" > /dev/null; then
+              echo "Waiting for CI of $GITHUB_SHA to finish"
+              sleep 30
+            elif jq -e 'any(.conclusion == "failure" or .conclusion == "timed_out")' <<< "$runs" > /dev/null; then
+              url="$(jq -r 'map(select(.conclusion == "failure" or .conclusion == "timed_out"))[0].url' <<< "$runs")"
+              echo "::error::CI failed for $GITHUB_SHA ($url). Fix or re-run it, then re-run this workflow."
+              exit 1
+            else
+              echo "No CI run for $GITHUB_SHA; running the matrix in this workflow"
+              echo "reuse=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+  ci:
+    needs: ci-status
+    if: needs.ci-status.outputs.reuse != 'true'
+    uses: ./.github/workflows/ci.yml
+  package:
+    needs: [ci-status, ci]
+    # A skipped `ci` (its result was reused) would otherwise skip every job after it.
+    if: ${{ !cancelled() && needs.ci-status.result == 'success' && contains(fromJSON('["success", "skipped"]'), needs.ci.result) }}
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          python-version: "3.15"
+      - name: Read the project version
+        id: version
+        shell: bash
+        # pyproject.toml is the only place the version is written; everything else derives from it.
+        run: |
+          version="$(uv run --no-project python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Check that the tag matches pyproject.toml
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if [[ "$GITHUB_REF_NAME" != "v$VERSION" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match pyproject.toml version $VERSION (expected v$VERSION)" >&2
+            exit 1
+          fi
+      - run: uv build
+      - run: uv run --no-project python scripts/check_packages.py dist
+      - run: uv export --frozen --no-dev --no-hashes --no-emit-project --no-annotate --no-header --output-file dist/constraints.txt
+      - run: uv run --no-project python scripts/package_extension.py dist
+      - run: ls -l dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mangacouch-${{ steps.version.outputs.version }}
+          path: dist/
+          if-no-files-found: error
+  standalone:
+    needs: [ci-status, ci]
+    if: ${{ !cancelled() && needs.ci-status.result == 'success' && contains(fromJSON('["success", "skipped"]'), needs.ci.result) }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # Archive platform tags: linux-x64, linux-arm64, macos-arm64, windows-x64.
+        runner: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          python-version: "3.15"
+      - run: uv sync --locked --no-dev --group freeze
+      - run: uv run --no-sync python scripts/build_standalone.py dist
+      - name: Smoke-check the unpacked archive
+        shell: bash
+        run: uv run --no-sync python scripts/check_standalone.py dist/mangacouch-*
+      - uses: actions/upload-artifact@v7
+        with:
+          name: standalone-${{ matrix.runner }}
+          path: dist/
+          if-no-files-found: error
+  docker:
+    needs: [package, standalone]
+    if: ${{ !cancelled() && needs.package.result == 'success' && needs.standalone.result == 'success' }}
+    timeout-minutes: 45
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Image tags and labels
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          # vX.Y.Z publishes X.Y.Z, X.Y and latest; pre-release tags publish only their own version.
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+      - name: Build the amd64 image for the smoke check
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: mangacouch-smoke
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke-check the image
+        shell: bash
+        env:
+          SMOKE_IMAGE: mangacouch-smoke
+        run: |
+          # Run the image as if it were a local executable, sharing the checker's temporary directory.
+          export SMOKE_TMP="$RUNNER_TEMP/smoke"
+          mkdir -p "$SMOKE_TMP"
+          wrapper="$RUNNER_TEMP/mangacouch-docker"
+          cat > "$wrapper" <<'EOF'
+          #!/usr/bin/env bash
+          exec docker run --rm -i --network host --user "$(id -u):$(id -g)" \
+            -v "$SMOKE_TMP:$SMOKE_TMP" -e "TMPDIR=$SMOKE_TMP" \
+            --entrypoint env "$SMOKE_IMAGE" -u MANGACOUCH_DB -u MANGACOUCH_ROOT python -m mangacouch "$@"
+          EOF
+          chmod +x "$wrapper"
+          TMPDIR="$SMOKE_TMP" python3 scripts/check_standalone.py "$wrapper"
+      - name: Log in to ghcr.io
+        if: github.ref_type == 'tag'
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build all platforms and push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: deploy/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.ref_type == 'tag' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+  release:
+    needs: [package, standalone, docker]
+    if: ${{ !cancelled() && github.ref_type == 'tag' && needs.package.result == 'success' && needs.standalone.result == 'success' && needs.docker.result == 'success' }}
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: |
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
+      - name: Create the GitHub release, or attach the files to one published by hand
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.package.outputs.version }}
+        run: |
+          # Publishing a release on github.com with a new tag creates the tag, which starts this workflow;
+          # that release already exists by the time the files are ready. Re-runs also find it.
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --title "$GITHUB_REF_NAME" --generate-notes \
+              --notes "Container image: \`docker pull $IMAGE:$VERSION\`"
+          fi
