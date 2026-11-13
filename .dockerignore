@@ -1,0 +1,24 @@
+.git
+.github
+.venv
+**/node_modules
+**/__pycache__
+.pytest_cache
+.ruff_cache
+.pyright
+**/.DS_Store
+data
+dist
+*.key
+.env*
+deploy/state
+deploy/books
+web/test-results
+build
+src/mangacouch/web
+src/mangacouch/_build_version.txt
+# Not used by deploy/Dockerfile (the web build type-checks web/src only).
+docs
+extension
+tests
+web/tests

@@ -1,0 +1,28 @@
+services:
+  mangacouch:
+    init: true
+    image: ghcr.io/mangacouch/mangacouch:${MANGACOUCH_VERSION:-latest}
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    user: "${MANGACOUCH_UID:-10001}:${MANGACOUCH_GID:-10001}"
+    ports:
+      - "${MANGACOUCH_PORT:-8780}:8780"
+    volumes:
+      - ./state:/data/state
+      - ./books:/data/books
+    # HTTP settings use defaults when unset. MAX_BYTES is persisted by init in runtime.json;
+    # removing it later does not reset the stored archive limit.
+    environment:
+      MANGACOUCH_ORIGIN: ${MANGACOUCH_ORIGIN:?Set the URL used by clients}
+      MANGACOUCH_ALLOWED_HOSTS: ${MANGACOUCH_ALLOWED_HOSTS:-}
+      MANGACOUCH_TRUSTED_PROXIES: ${MANGACOUCH_TRUSTED_PROXIES:-}
+      MANGACOUCH_UPLOAD_BYTES: ${MANGACOUCH_UPLOAD_BYTES:-}
+      MANGACOUCH_CACHE_BYTES: ${MANGACOUCH_CACHE_BYTES:-}
+      MANGACOUCH_MAX_BYTES: ${MANGACOUCH_MAX_BYTES:-}
+      MANGACOUCH_LOG_LEVEL: ${MANGACOUCH_LOG_LEVEL:-info}
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    # serve allows 15 s for open requests, then up to 60 s to persist a paid archive link.
+    stop_grace_period: 90s

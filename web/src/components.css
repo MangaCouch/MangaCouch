@@ -1,0 +1,920 @@
+/* Shared controls used across pages. */
+
+/* Buttons */
+.primary {
+  background: var(--primary);
+  color: var(--on-primary);
+  border-color: var(--primary);
+}
+@media (hover: hover) {
+  .primary:not(:disabled):hover {
+    background: var(--primary-hover);
+  }
+}
+.subtle,
+.text-button,
+.icon-button {
+  background: transparent;
+  border-color: transparent;
+}
+.icon-button {
+  width: var(--control-height);
+  height: var(--control-height);
+  padding: var(--space-control);
+}
+/* Close, clear and remove buttons: a small mark in a compact round target. */
+.icon-button.close-button {
+  display: inline-grid;
+  place-items: center;
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
+  border-radius: var(--radius-round);
+}
+.icon-button.close-button:not(.danger) {
+  color: var(--on-surface-muted);
+}
+
+button.danger,
+.button.danger,
+.action-menu .danger {
+  color: var(--danger);
+  border-color: var(--danger-outline);
+}
+@media (hover: hover) {
+  .danger:not(:disabled):hover {
+    background: var(--danger-surface);
+  }
+}
+.spinner,
+[aria-busy="true"] > .lucide-loader-circle {
+  animation: spin var(--motion-spinner) var(--ease-linear) infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Form controls */
+/* Drawn checkboxes: the native box nearly disappears on the dark theme. */
+input[type="checkbox"] {
+  appearance: none;
+  display: inline-grid;
+  flex: none;
+  place-content: center;
+  width: 16px;
+  height: 16px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 1.5px solid var(--outline-control);
+  border-radius: var(--radius-selection);
+  background: var(--surface-input);
+  cursor: pointer;
+}
+input[type="checkbox"]::before {
+  content: "";
+  width: 0.55em;
+  height: 0.3em;
+  border: solid var(--on-primary);
+  border-width: 0 0 2px 2px;
+  opacity: 0;
+  transform: translateY(-0.08em) rotate(-45deg);
+}
+input[type="checkbox"]:checked {
+  border-color: var(--primary);
+  background: var(--primary);
+}
+input[type="checkbox"]:checked::before {
+  opacity: 1;
+}
+input[type="checkbox"]:disabled {
+  cursor: default;
+}
+.checkbox {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: var(--space-sm);
+  line-height: var(--leading-relaxed);
+}
+.checkbox input {
+  margin: var(--space-2xs) 0;
+  accent-color: var(--primary);
+}
+.check-label {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: var(--space-sm);
+}
+.check-label input[type="checkbox"] {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin: var(--space-minimum) 0 0;
+  padding: 0;
+}
+.select-control {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-md);
+  width: 100%;
+  min-height: 42px;
+  background: var(--surface-control-solid);
+  font-weight: var(--weight-regular);
+  text-align: left;
+}
+/* Loading placeholders: shown when a list's query changes, never on a background refresh. */
+.skeleton {
+  opacity: 0;
+  animation: skeleton-appear var(--motion-fast) var(--ease-enter)
+    var(--delay-skeleton) forwards;
+}
+@keyframes skeleton-appear {
+  to {
+    opacity: 1;
+  }
+}
+.skeleton-row {
+  display: grid;
+  gap: var(--space-sm);
+  padding: var(--space-lg) 0;
+  border-bottom: 1px solid var(--outline);
+}
+.skeleton-line,
+.skeleton-block {
+  display: block;
+  border-radius: var(--radius-compact);
+  background: linear-gradient(
+      90deg,
+      var(--surface-muted) 30%,
+      var(--surface-hover-soft) 50%,
+      var(--surface-muted) 70%
+    )
+    0 0 / 300% 100%;
+  animation: skeleton-shimmer var(--motion-skeleton) var(--ease-linear) infinite;
+}
+.skeleton-line {
+  width: 72%;
+  height: 0.9em;
+}
+.skeleton-line.short {
+  width: 38%;
+}
+@keyframes skeleton-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.segmented {
+  display: flex;
+  flex-wrap: wrap;
+  width: fit-content;
+  max-width: 100%;
+  gap: var(--space-2xs);
+  padding: var(--space-2xs);
+  border: 1px solid var(--outline-segmented);
+  border-radius: var(--radius-popover);
+  background: var(--surface-segmented);
+}
+.segmented button {
+  flex: 1;
+  min-width: max-content;
+  min-height: 34px;
+  padding: var(--space-xs) var(--space-control);
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: var(--text-label);
+}
+.segmented button[aria-pressed="true"] {
+  color: var(--on-selected);
+  background: var(--surface-segment-selected);
+  box-shadow: var(--shadow-selected);
+}
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  margin: var(--space-section) auto;
+}
+.pagination button {
+  min-width: 40px;
+  padding: var(--space-sm) var(--space-md);
+}
+.pagination-page {
+  min-width: 64px;
+  color: var(--on-surface-muted);
+  font-size: var(--text-label);
+  text-align: center;
+}
+/* A labelled group of controls inside a form (e.g. the tag editor). */
+.field-group {
+  display: grid;
+  gap: var(--space-sm);
+}
+
+/* Hover hints (HoverHint.tsx): one shared, frosted label for mouse pointers. */
+.hover-hint {
+  position: fixed;
+  z-index: var(--layer-hint);
+  max-width: min(320px, calc(100vw - 16px));
+  padding: var(--space-2xs) var(--space-sm);
+  border-radius: var(--radius-compact);
+  color: var(--on-hint);
+  background: var(--surface-hint);
+  box-shadow: var(--shadow-popover);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+  font-size: var(--text-caption);
+  line-height: var(--leading-label);
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+
+/* Popovers, menus and dialogs */
+.select-popover,
+.action-menu,
+.jump-popover {
+  z-index: var(--layer-popover);
+  max-width: calc(100vw - 24px);
+  padding: var(--space-xs);
+  border: 1px solid var(--outline-popover);
+  border-radius: var(--radius-popover);
+  background: var(--surface-popover);
+  box-shadow: var(--shadow-popover);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+}
+.select-popover {
+  min-width: var(--radix-select-trigger-width);
+  max-height: var(--radix-select-content-available-height);
+}
+.select-option,
+.action-menu [role="menuitem"] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-control) var(--space-md);
+  border-radius: var(--radius-compact);
+  outline: none;
+  cursor: pointer;
+}
+.select-option[data-highlighted],
+.action-menu [data-highlighted] {
+  background: var(--surface-selected);
+}
+.action-menu .menu-subtrigger[data-state="open"] {
+  background: var(--surface-selected);
+}
+.menu-separator {
+  height: 1px;
+  margin: var(--space-xs) var(--space-sm);
+  background: var(--outline);
+}
+.select-option[data-disabled],
+.action-menu [data-disabled] {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.jump-popover {
+  padding: var(--space-text);
+}
+.jump-popover form {
+  display: flex;
+  align-items: center;
+  gap: var(--space-control);
+}
+.jump-popover input {
+  width: 90px;
+}
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--layer-scrim);
+  background: var(--modal-scrim);
+  backdrop-filter: blur(5px);
+}
+.modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  z-index: var(--layer-dialog);
+  display: block;
+  width: min(720px, calc(100vw - 32px));
+  max-height: 90dvh;
+  margin: 0;
+  padding: var(--space-section);
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--outline-glass);
+  border-radius: var(--radius-panel);
+  color: var(--on-surface);
+  background: var(--surface-dialog);
+  box-shadow: var(--shadow-dialog);
+  transform: translate(-50%, -50%);
+}
+/* The dialog itself takes focus when it has no field; it needs no ring for that. */
+.modal:focus {
+  outline: none;
+}
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-inset);
+  margin-bottom: var(--space-section);
+}
+.modal-head h2 {
+  margin: 0;
+}
+.modal-actions {
+  justify-content: flex-end;
+  margin-top: var(--space-section);
+}
+.modal > p + .actions {
+  margin-top: var(--space-panel);
+}
+.modal .notice {
+  margin-bottom: var(--space-panel);
+}
+.modal-form {
+  display: grid;
+  gap: var(--space-inset);
+}
+.modal-form > label {
+  display: grid;
+  gap: var(--space-sm);
+}
+.modal-form > .muted {
+  margin: 0;
+  font-size: var(--text-label);
+}
+.modal-form > .primary {
+  justify-self: end;
+}
+.app-toast {
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-toast);
+  font-family: var(--font-body);
+  overflow-wrap: anywhere;
+}
+[data-sonner-toaster] [data-close-button] {
+  min-width: var(--target-min);
+  min-height: var(--target-min);
+  padding: 0;
+}
+
+/* Pills and tags */
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin: var(--space-md) 0 var(--space-panel);
+}
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  min-height: 0;
+  padding: var(--space-2xs) var(--space-sm);
+  border: 1px solid var(--outline-tag);
+  border-radius: var(--radius-pill);
+  background: var(--surface-tag);
+  font-size: var(--text-caption);
+  line-height: var(--leading-label);
+  white-space: nowrap;
+}
+.needs-review {
+  color: var(--on-error);
+}
+.pill-category[data-value="doujinshi"] {
+  background: var(--category-doujinshi-surface);
+  color: var(--on-category-doujinshi);
+}
+.pill-category[data-value="manga"] {
+  background: var(--category-manga-surface);
+  color: var(--on-category-manga);
+}
+.pill-category[data-value="artist-cg"] {
+  background: var(--category-artist-cg-surface);
+  color: var(--on-category-artist-cg);
+}
+.pill-category[data-value="game-cg"] {
+  background: var(--category-game-cg-surface);
+  color: var(--on-category-game-cg);
+}
+.pill-category[data-value="western"] {
+  background: var(--category-western-surface);
+  color: var(--on-category-western);
+}
+.pill-category[data-value="non-h"] {
+  background: var(--category-non-h-surface);
+  color: var(--on-category-non-h);
+}
+.pill-category[data-value="image-set"] {
+  background: var(--category-image-set-surface);
+  color: var(--on-category-image-set);
+}
+.pill-category[data-value="cosplay"] {
+  background: var(--category-cosplay-surface);
+  color: var(--on-category-cosplay);
+}
+.pill-category[data-value="asian-porn"] {
+  background: var(--category-asian-porn-surface);
+  color: var(--on-category-asian-porn);
+}
+.pill-category[data-value="misc"] {
+  background: var(--category-misc-surface);
+  color: var(--on-category-misc);
+}
+.pill-language[data-value="chinese"] {
+  background: var(--language-chinese-surface);
+  color: var(--on-language-chinese);
+}
+.pill-language[data-value="japanese"] {
+  background: var(--language-japanese-surface);
+  color: var(--on-language-japanese);
+}
+.pill-language[data-value="english"] {
+  background: var(--language-english-surface);
+  color: var(--on-language-english);
+}
+.pill-file[data-value="pdf"] {
+  background: var(--file-pdf-surface);
+  color: var(--on-file-pdf);
+}
+.pill-file[data-value="cbz"],
+.pill-file[data-value="zip"] {
+  background: var(--file-archive-surface);
+  color: var(--on-file-archive);
+}
+.pill-rating {
+  color: inherit;
+}
+.pill-rating span {
+  font-weight: var(--weight-regular);
+}
+.pill-rating b {
+  font-weight: var(--weight-rating);
+}
+.book-pills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
+  color: var(--on-surface-muted);
+  font-size: var(--text-caption);
+}
+.book-pills .pill {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.tag-pill {
+  flex-wrap: wrap;
+  max-width: 100%;
+  white-space: normal;
+  text-align: left;
+}
+.tag-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.tag-count {
+  margin-left: var(--space-sm);
+  padding: var(--space-hairline) var(--space-xs);
+  border-radius: var(--radius-pill);
+  background: var(--surface-tag-count);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-regular);
+  font-variant-numeric: tabular-nums;
+}
+.tag-editor {
+  position: relative;
+  display: grid;
+  gap: var(--space-sm);
+}
+.tag-editor .tags {
+  gap: var(--space-xs);
+  margin: 0;
+}
+.editable-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  padding: var(--space-minimum) var(--space-2xs) var(--space-minimum)
+    var(--space-sm);
+  border: 1px solid var(--outline-tag);
+  border-radius: var(--radius-popover);
+  background: var(--surface-segmented);
+  font-size: var(--text-caption);
+  line-height: var(--leading-control);
+  cursor: text;
+}
+.editable-tag.editing {
+  outline: 2px solid var(--focus-ring);
+}
+.editable-tag strong {
+  font-size: inherit;
+  font-weight: var(--weight-emphasis);
+}
+/* The tag's text is the button that edits it: it reads as text, not as a control. */
+.editable-tag > .tag-edit {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2xs);
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-compact);
+  background: none;
+  box-shadow: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: text;
+}
+.editable-tag > .tag-edit:focus-visible {
+  outline-offset: 2px;
+}
+@media (hover: hover) {
+  .editable-tag > .tag-edit:hover .tag-pill {
+    text-decoration: underline dotted var(--on-surface-muted);
+    text-underline-offset: 0.2em;
+  }
+}
+.editable-tag .tag-pill {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: inherit;
+  line-height: inherit;
+}
+.editable-tag .icon-button {
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  min-height: var(--target-min);
+  padding: var(--space-2xs);
+  border: 0;
+  background: none;
+}
+.tag-entry {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+.tag-entry input {
+  flex: 1;
+  min-width: 0;
+}
+.tag-editor-suggestions {
+  max-height: 240px;
+  overflow: auto;
+  margin: 0;
+  padding: var(--space-xs);
+  border: 1px solid var(--outline);
+  border-radius: var(--radius-control);
+  background: var(--surface-popover);
+  list-style: none;
+}
+.tag-editor-suggestions li {
+  display: flex;
+  gap: var(--space-control);
+  padding: var(--space-sm) var(--space-control);
+  border-radius: var(--radius-thumbnail);
+  cursor: pointer;
+}
+.tag-editor-suggestions li[aria-selected="true"] {
+  background: var(--surface-selected);
+}
+
+/* Search box with tokens and suggestions */
+.search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  width: 480px;
+  max-width: 100%;
+  padding: var(--space-xs) var(--space-xs) var(--space-xs) var(--space-lg);
+  border: 1px solid var(--outline-raised);
+  border-radius: var(--radius-toolbar);
+  background: var(--surface-input);
+}
+.search > svg {
+  color: var(--on-surface-muted);
+}
+.search input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-sm) 0;
+  border: 0;
+  background: transparent;
+}
+.search > button {
+  padding: var(--space-sm) var(--space-md);
+}
+.search-combobox {
+  position: relative;
+}
+/* One focus ring, on the box: the field inside it draws none of its own. */
+.search-combobox:has(.search-tokens input:focus-visible) {
+  border-color: var(--focus-ring);
+  box-shadow: 0 0 0 1px var(--focus-ring);
+}
+.search-clear {
+  flex-shrink: 0;
+}
+.search-tokens {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-xs);
+  min-width: 0;
+  padding: var(--space-2xs) 0;
+}
+.search-tokens input {
+  flex: 1;
+  width: 100px;
+  min-width: 100px;
+  padding: var(--space-sm);
+  border: 1px solid transparent;
+  border-radius: var(--radius-compact);
+}
+.search-tokens input:focus-visible {
+  outline: none;
+}
+.search-token {
+  max-width: 100%;
+  min-height: 30px;
+  padding: var(--space-2xs) var(--space-control);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.search-token:focus {
+  outline: 2px solid var(--focus-ring);
+}
+.suggestion-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  z-index: var(--layer-suggestion);
+  display: flex;
+  flex-direction: column;
+  max-height: min(450px, 60dvh);
+  overflow: hidden;
+  padding: var(--space-sm);
+  border: 1px solid var(--outline);
+  border-radius: var(--radius-toolbar);
+  background: var(--surface-popover);
+  box-shadow: var(--shadow-suggestion);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  backdrop-filter: blur(20px) saturate(180%);
+}
+.suggestion-popover ul {
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.suggestion-popover [role="option"] {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  min-height: 48px;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+.suggestion-popover [aria-selected="true"] {
+  background: var(--surface-hover-soft);
+}
+.suggestion-popover [role="option"] > span:first-child {
+  display: grid;
+  gap: var(--space-2xs);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.suggestion-popover strong {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--space-minimum);
+}
+.suggestion-popover small,
+.suggestion-caption {
+  color: var(--on-surface-muted);
+  font-size: var(--text-caption);
+}
+.suggestion-caption {
+  display: flex;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+}
+
+/* Star rating */
+.rating {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-md);
+  margin: var(--space-panel) 0 var(--space-control);
+}
+.rating > button {
+  padding: var(--space-xs);
+  font-size: var(--text-caption);
+}
+/* Clearing belongs to the value it clears: the button sits right beside it. */
+.rating-value + .close-button {
+  margin-left: calc(var(--space-2xs) - var(--space-md));
+}
+.rating-stars {
+  position: relative;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  width: var(--rating-width);
+  min-height: var(--control-height);
+  border-radius: var(--radius-selection);
+}
+.rating-stars:has(.rating-input:focus-visible) {
+  outline: 3px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+.rating-star {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 25px;
+  height: 25px;
+  color: var(--rating-track);
+}
+.star-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 25px;
+  overflow: hidden;
+  color: var(--rating-selected);
+  pointer-events: none;
+}
+.rating-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.rating-value {
+  min-width: 30px;
+  color: var(--on-surface-muted);
+  font-size: var(--text-caption);
+}
+
+/* Background task popover */
+.task-trigger,
+.attention-trigger {
+  position: relative;
+}
+.task-count,
+.attention-count {
+  position: absolute;
+  top: -5px;
+  right: -4px;
+  min-width: 18px;
+  padding: var(--space-hairline) var(--space-2xs);
+  border-radius: var(--radius-control);
+  color: var(--on-primary);
+  background: var(--primary);
+  font-size: var(--text-overline);
+}
+.task-popover {
+  z-index: var(--layer-task);
+  width: min(370px, calc(100vw - 24px));
+  max-height: 70dvh;
+  overflow: auto;
+  padding: var(--space-lg);
+  border-radius: var(--radius-toolbar);
+}
+.task-popover header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+.task-popover .tags {
+  margin: var(--space-md) 0;
+}
+.task-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-xs) var(--space-control);
+  width: 100%;
+  padding: var(--space-control) 0;
+  border: 0;
+  border-top: 1px solid var(--outline);
+  background: transparent;
+  text-align: left;
+}
+.task-row strong {
+  overflow: hidden;
+  font-size: var(--text-label);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.task-row progress {
+  grid-column: 1/-1;
+  width: 100%;
+  height: 5px;
+  accent-color: var(--primary);
+}
+
+@media (width <= 750px) {
+  .select-control {
+    min-height: 44px;
+  }
+  .book-pills .pill {
+    padding: var(--space-minimum) var(--space-xs);
+    font-size: var(--text-overline);
+  }
+  .search {
+    width: 100%;
+  }
+  .search-combobox .search-clear {
+    display: none;
+  }
+}
+@media (width <= 480px) {
+  .modal {
+    padding: var(--space-panel);
+  }
+  .filter-popover .library-filter-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .rating {
+    gap: var(--space-xs);
+  }
+}
+
+.heading-with-info {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+.info-tip {
+  flex: 0 0 auto;
+  vertical-align: middle;
+}
+.info-popover {
+  z-index: var(--layer-popover);
+  width: min(360px, calc(100vw - 24px));
+  max-height: var(--radix-popover-content-available-height);
+  overflow: auto;
+  padding: var(--space-md);
+  border: 1px solid var(--outline-popover);
+  border-radius: var(--radius-popover);
+  background: var(--surface-popover);
+  box-shadow: var(--shadow-popover);
+  font-size: var(--text-caption);
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+@media (pointer: coarse) {
+  .suggestion-caption {
+    display: none;
+  }
+}

@@ -1,0 +1,91 @@
+name: Build and smoke-check image
+description: Build, validate and optionally push the selected container platforms.
+inputs:
+  platforms:
+    required: true
+    description: Target platforms
+  smoke-platform:
+    default: linux/amd64
+    description: Native platform used for the smoke check
+  tags:
+    required: true
+    description: Image tags
+  labels:
+    default: ''
+    description: Image labels
+  annotations:
+    default: ''
+    description: Image annotations
+  push:
+    default: 'false'
+    description: Whether to push
+  token:
+    required: true
+    description: Registry token
+  cache-scope:
+    default: mangacouch-image
+    description: Isolated build cache
+runs:
+  using: composite
+  steps:
+    - name: Read the checked-out build identity
+      id: identity
+      shell: bash
+      run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+    - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+      if: contains(inputs.platforms, ',')
+    - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+    - name: Build the native image for the smoke check
+      uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      with:
+        context: .
+        file: deploy/Dockerfile
+        platforms: ${{ inputs.smoke-platform }}
+        load: true
+        tags: mangacouch-smoke
+        build-args: |
+          MANGACOUCH_BUILD_SHA=${{ steps.identity.outputs.sha }}
+          MANGACOUCH_BUILD_REF=${{ github.ref }}
+        # Reads the multi-platform cache but never writes it: a single-platform export to the same
+        # scope would replace the cache index and drop the arm64 layers. The multi-platform build
+        # below reuses this build's amd64 layers from the same builder.
+        cache-from: type=gha,scope=${{ inputs.cache-scope }}
+    - name: Smoke-check the image
+      shell: bash
+      env:
+        SMOKE_IMAGE: mangacouch-smoke
+      run: |
+        # Run the image as if it were a local executable, sharing the checker's temporary directory.
+        export SMOKE_TMP="$RUNNER_TEMP/smoke"
+        mkdir -p "$SMOKE_TMP"
+        wrapper="$RUNNER_TEMP/mangacouch-docker"
+        cat > "$wrapper" <<'EOF'
+        #!/usr/bin/env bash
+        exec docker run --rm -i --network host --user "$(id -u):$(id -g)" \
+          -v "$SMOKE_TMP:$SMOKE_TMP" -e "TMPDIR=$SMOKE_TMP" \
+          --entrypoint env "$SMOKE_IMAGE" -u MANGACOUCH_DB -u MANGACOUCH_ROOT python -m mangacouch "$@"
+        EOF
+        chmod +x "$wrapper"
+        TMPDIR="$SMOKE_TMP" python3 scripts/check_standalone.py "$wrapper"
+    - name: Log in to ghcr.io
+      if: inputs.push == 'true'
+      uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ inputs.token }}
+    - name: Build all platforms and push
+      uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+      with:
+        context: .
+        file: deploy/Dockerfile
+        platforms: ${{ inputs.platforms }}
+        build-args: |
+          MANGACOUCH_BUILD_SHA=${{ steps.identity.outputs.sha }}
+          MANGACOUCH_BUILD_REF=${{ github.ref }}
+        push: ${{ inputs.push == 'true' }}
+        tags: ${{ inputs.tags }}
+        labels: ${{ inputs.labels }}
+        annotations: ${{ inputs.annotations }}
+        cache-from: type=gha,scope=${{ inputs.cache-scope }}
+        cache-to: type=gha,scope=${{ inputs.cache-scope }},mode=max

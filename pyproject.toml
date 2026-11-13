@@ -1,0 +1,119 @@
+[project]
+name = "mangacouch"
+version = "1.0.0"
+description = "MangaCouch personal comic library"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "MangaCouch" }]
+requires-python = ">=3.12,<3.16"
+classifiers = [
+    "Environment :: Web Environment",
+    "Framework :: FastAPI",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
+    "Topic :: Multimedia :: Graphics :: Viewers",
+]
+dependencies = [
+    "pydantic>=2.14.3,<3",
+    "pyvips[binary]>=3.1,<4",
+    "pypdfium2>=5.15.2,<6",
+    "numpy>=2,<3",
+    "fastapi>=0.162,<1",
+    "starlette>=1.10,<2",
+    "uvicorn>=0.54,<1",
+    "argon2-cffi>=25.1,<26",
+    "python-multipart>=0.0.32,<1",
+    "httpx[socks]>=0.28,<1",
+    "cryptography>=50,<51",
+    "beautifulsoup4>=4.14,<5",
+    "tzdata>=2025.2",
+]
+
+[project.urls]
+Homepage = "https://github.com/MangaCouch/MangaCouch"
+Repository = "https://github.com/MangaCouch/MangaCouch"
+Issues = "https://github.com/MangaCouch/MangaCouch/issues"
+
+[project.optional-dependencies]
+# The Windows/macOS tray launcher (`mangacouch desktop`); the settings window also needs Tk.
+desktop = ["pystray>=0.19.5,<0.20", "pillow>=12,<14"]
+
+[project.scripts]
+mangacouch = "mangacouch.__main__:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=9,<10",
+    "pytest-timeout>=2.4,<3",
+    "ruff>=0.17.4,<1",
+    # starlette.testclient runs on httpx2; with only httpx it warns that this is deprecated.
+    "httpx2>=2.16,<3",
+    "mangacouch[desktop]",
+    "pytest-xdist>=3.8,<4",
+]
+# Standalone executables for releases; installed only with `uv sync --group freeze`.
+freeze = ["pyinstaller>=6.22,<7"]
+
+[build-system]
+requires = ["hatchling>=1.33,<2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.hooks.custom]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mangacouch"]
+# The web bundle is git-ignored build output; `npm --prefix web run build` must run before `uv build`.
+artifacts = ["src/mangacouch/web/**", "src/mangacouch/_build_version.txt"]
+
+[tool.hatch.build.targets.sdist]
+# Ship the built web bundle so installing from the sdist needs no Node.js.
+artifacts = ["src/mangacouch/web/**", "src/mangacouch/_build_version.txt"]
+include = ["/schema", "/src", "/tests", "/scripts", "/web/src", "/web/public", "/web/tests", "/web/*.json", "/web/*.ts", "/web/*.mjs", "/web/*.html", "/pyproject.toml", "/hatch_build.py", "/uv.lock", "/LICENSE", "/README.md", "/README.zh-CN.md", "/docs", "/.env.example", "/.github/workflows", "/.github/actions", "/extension", "/deploy"]
+exclude = [
+    "/docs/screenshots",
+    "/deploy/state",
+    "/deploy/books",
+    "/dist",
+    "/.env",
+    "**/__pycache__",
+    "**/.pytest_cache",
+    "**/.ruff_cache",
+    "**/node_modules",
+    "**/*.sqlite*",
+    "**/*.key",
+    "**/*.cbz",
+    "**/*.zip",
+    "**/*.pdf",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra --strict-markers"
+faulthandler_timeout = 300
+timeout = 300
+timeout_method = "thread"
+filterwarnings = ["error::ResourceWarning"]
+# Run by default; select with -m perf or skip with -m "not perf".
+markers = ["perf: guards query counts, query plans or archive reads against performance regressions"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 110
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["mangacouch"]
+
+[tool.pyright]
+include = ["src", "tests", "scripts"]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"

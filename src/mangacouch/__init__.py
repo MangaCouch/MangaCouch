@@ -1,0 +1,1 @@
+"""MangaCouch personal comic library."""

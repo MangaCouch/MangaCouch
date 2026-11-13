@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="style.css" />
+    <title>MangaCouch</title>
+  </head>
+  <body class="popup">
+    <main>
+      <header>
+        <strong>MangaCouch</strong
+        ><button
+          id="settings"
+          aria-label="Settings"
+          data-i18n-aria-label="settingsLabel"
+        >
+          ⚙
+        </button>
+      </header>
+      <p id="gallery"></p>
+      <button id="send" disabled data-i18n="addButton">Add to queue</button
+      ><button id="queue" data-i18n="queueButton">Open downloads</button>
+      <p id="status" role="status"></p>
+    </main>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

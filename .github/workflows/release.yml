@@ -1,0 +1,308 @@
+name: Release
+# A pushed v* tag needs a passing CI matrix for its commit. The CI run from the push to main is reused
+# (waiting for it if it is still running); only a commit without one runs the matrix here.
+# Then every release format is built and smoke-checked:
+#   - the wheel, sdist, constraints file and zipped browser extension;
+#   - standalone executables that need no Python, for Linux x64/ARM64, Apple Silicon macOS and Windows x64,
+#     plus a macOS disk image with MangaCouch.app (the menu bar launcher);
+#   - the linux/amd64 + linux/arm64 container image.
+# Only after all of them pass is the X.Y.Z image pushed to ghcr.io and the GitHub Release published;
+# the X.Y and latest image tags move last, once the release exists.
+# Only final releases are supported: a tag that is not vX.Y.Z (v1.2.0rc1, v1.2) stops the run at once.
+# Run manually (workflow_dispatch), the chosen ref decides:
+#   - a v* tag goes through the same gates and publishes like a pushed tag; use it to re-run a release.
+#     The image tags are pushed again and files already attached to the release are replaced (--clobber);
+#   - a branch is a dry run: it builds and checks the same files and uploads them as workflow artifacts,
+#     without pushing the image or creating a release.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+# One run per tag or branch at a time; a second run waits instead of racing the first one's pushes
+# and uploads, and is never cancelled halfway through a publish.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  IMAGE: ghcr.io/mangacouch/mangacouch
+jobs:
+  ci-status:
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    outputs:
+      reuse: ${{ steps.find.outputs.reuse }}
+      run-id: ${{ steps.find.outputs.run-id }}
+    steps:
+      - name: Accept only final release tags
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME is not vX.Y.Z; only final releases are supported. Delete the tag."
+            exit 1
+          fi
+      - name: Find a CI run for this commit
+        id: find
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # Pull request runs test a merge with the base branch, not this commit, so only push and manual
+          # runs count. A later re-run of a failed CI run updates its conclusion here.
+          while :; do
+            runs="$(gh run list --workflow ci.yml --commit "$GITHUB_SHA" --limit 50 \
+              --json status,conclusion,event,url,databaseId \
+              --jq '[.[] | select(.event == "push" or .event == "workflow_dispatch")]')"
+            if jq -e 'any(.conclusion == "success")' <<< "$runs" > /dev/null; then
+              echo "Reusing $(jq -r 'map(select(.conclusion == "success"))[0].url' <<< "$runs")"
+              run_id="$(jq -r 'map(select(.conclusion == "success"))[0].databaseId' <<< "$runs")"
+              count="$(gh api "repos/$GH_REPO/actions/runs/$run_id/artifacts" --paginate --slurp \
+                | jq '[.[].artifacts[] | select((.name == "web-bundle" or .name == "release-packages") and .expired == false)] | unique_by(.name) | length')"
+              if [[ "$count" != "2" ]]; then
+                echo "CI artifacts expired; rebuilding through CI"
+                echo "reuse=false" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              echo "run-id=$run_id" >> "$GITHUB_OUTPUT"
+              echo "reuse=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            elif jq -e 'any(.status != "completed")' <<< "$runs" > /dev/null; then
+              echo "Waiting for CI of $GITHUB_SHA to finish"
+              sleep 30
+            elif jq -e 'any(.conclusion == "failure" or .conclusion == "timed_out")' <<< "$runs" > /dev/null; then
+              url="$(jq -r 'map(select(.conclusion == "failure" or .conclusion == "timed_out"))[0].url' <<< "$runs")"
+              echo "::error::CI failed for $GITHUB_SHA ($url). Fix or re-run it, then re-run this workflow."
+              exit 1
+            else
+              echo "No CI run for $GITHUB_SHA; running the matrix in this workflow"
+              echo "reuse=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          done
+  ci:
+    needs: ci-status
+    if: needs.ci-status.outputs.reuse != 'true'
+    uses: ./.github/workflows/ci.yml
+  package:
+    needs: [ci-status, ci]
+    # A skipped `ci` (its result was reused) would otherwise skip every job after it.
+    if: ${{ !cancelled() && needs.ci-status.result == 'success' && contains(fromJSON('["success", "skipped"]'), needs.ci.result) }}
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          python-version: "3.15"
+      - name: Read the project version
+        id: version
+        shell: bash
+        # pyproject.toml is the only place the version is written; everything else derives from it.
+        run: |
+          version="$(uv run --no-project python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Check that the tag matches pyproject.toml
+        if: github.ref_type == 'tag'
+        shell: bash
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if [[ "$GITHUB_REF_NAME" != "v$VERSION" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match pyproject.toml version $VERSION (expected v$VERSION)" >&2
+            exit 1
+          fi
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: web-bundle
+          path: src/mangacouch/web
+          run-id: ${{ needs.ci-status.outputs.run-id || github.run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-packages
+          path: dist
+          run-id: ${{ needs.ci-status.outputs.run-id || github.run_id }}
+          github-token: ${{ github.token }}
+      # CI packages carry the main build identity; stamp this release's tag while reusing its web bundle.
+      - run: uv build
+      - run: uv run --no-project python scripts/check_packages.py dist
+      - run: uv run --no-project python scripts/package_extension.py dist
+      - run: ls -l dist
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: mangacouch-${{ steps.version.outputs.version }}
+          path: dist/
+          if-no-files-found: error
+          # Dry runs keep their files for a week; a tag uses the repository default (0).
+          retention-days: ${{ github.ref_type != 'tag' && 7 || 0 }}
+  standalone:
+    needs: [ci-status, ci]
+    if: ${{ !cancelled() && needs.ci-status.result == 'success' && contains(fromJSON('["success", "skipped"]'), needs.ci.result) }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # Archive platform tags: linux-x64, linux-arm64, macos-arm64, windows-x64.
+        # The Linux archives bundle the build host's libstdc++ and need a glibc at least as new as the
+        # runner's. Both Linux runners stay pinned to Ubuntu 24.04 (glibc 2.39) rather than
+        # ubuntu-latest, so a runner image update never raises that floor.
+        include:
+          - runner: ubuntu-24.04
+            python: "3.15"
+          - runner: ubuntu-24.04-arm
+            python: "3.15"
+          - runner: macos-latest
+            python: "3.15"
+          # On Python 3.15, cryptography's Windows wheel uses the abi3t stable ABI and links python3t.dll,
+          # which PyInstaller 6.22 does not collect; the 3.14 wheel links python3.dll, which it does.
+          - runner: windows-latest
+            python: "3.14"
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: web-bundle
+          path: src/mangacouch/web
+          run-id: ${{ needs.ci-status.outputs.run-id || github.run_id }}
+          github-token: ${{ github.token }}
+      # Windows and macOS builds include the tray launcher (the `desktop` extra); Linux builds do not.
+      - run: uv sync --locked --no-dev --group freeze ${{ runner.os != 'Linux' && '--extra desktop' || '' }}
+      - run: uv run --no-sync python scripts/build_standalone.py dist
+      - name: Smoke-check the unpacked archive
+        shell: bash
+        run: |
+          # The CLI archive, not the macOS disk image (checked below).
+          archive="$(ls dist/mangacouch-* | grep -v '\.dmg$')"
+          uv run --no-sync python scripts/check_standalone.py "$archive"
+      - name: Smoke-check the CLI inside MangaCouch.app
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          hdiutil attach -nobrowse -readonly -mountpoint "$RUNNER_TEMP/dmg" dist/mangacouch-*.dmg
+          test -L "$RUNNER_TEMP/dmg/Applications"
+          codesign --verify --deep "$RUNNER_TEMP/dmg/MangaCouch.app"
+          uv run --no-sync python scripts/check_standalone.py "$RUNNER_TEMP/dmg/MangaCouch.app/Contents/MacOS/mangacouch"
+          hdiutil detach "$RUNNER_TEMP/dmg"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: standalone-${{ matrix.runner }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: ${{ github.ref_type != 'tag' && 7 || 0 }}
+  docker:
+    needs: [package, standalone]
+    if: ${{ !cancelled() && needs.package.result == 'success' && needs.standalone.result == 'success' }}
+    timeout-minutes: 45
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      latest: ${{ steps.latest.outputs.latest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Is this the newest release?
+        id: latest
+        if: github.ref_type == 'tag'
+        shell: bash
+        run: |
+          # `latest` follows the highest vX.Y.Z tag, so re-running an older release (workflow_dispatch)
+          # republishes its own version tags without moving `latest` backwards.
+          newest="$(git ls-remote --tags --refs origin 'v*' | sed 's|.*refs/tags/||' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -n 1)"
+          if [[ "$GITHUB_REF_NAME" == "$newest" ]]; then
+            echo "latest=auto" >> "$GITHUB_OUTPUT"
+          else
+            echo "Not tagging latest: the newest release is ${newest:-unknown}"
+            echo "latest=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Image tags and labels
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          # Only X.Y.Z is pushed here; the release job points X.Y (and latest, when this is the newest
+          # release) at it once the GitHub Release exists.
+          flavor: latest=false
+          tags: type=semver,pattern={{version}}
+      - uses: ./.github/actions/build-image
+        with:
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          push: ${{ github.ref_type == 'tag' }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+  release:
+    needs: [package, standalone, docker]
+    if: ${{ !cancelled() && github.ref_type == 'tag' && needs.package.result == 'success' && needs.standalone.result == 'success' && needs.docker.result == 'success' }}
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          # Only the files built above: docker/build-push-action also uploads its build records
+          # (*.dockerbuild) as workflow artifacts, and those are not release files.
+          pattern: "{mangacouch-*,standalone-*}"
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        working-directory: dist
+        run: |
+          sha256sum -- * > SHA256SUMS
+          cat SHA256SUMS
+      - name: Create the GitHub release, or attach the files to one published by hand
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ needs.package.outputs.version }}
+        run: |
+          # Publishing a release on github.com with a new tag creates the tag, which starts this workflow;
+          # that release already exists by the time the files are ready. Re-runs also find it.
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --title "$GITHUB_REF_NAME" --generate-notes \
+              --notes "Container image: \`docker pull $IMAGE:$VERSION\`"
+          fi
+      - name: Log in to ghcr.io
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Point the X.Y and latest image tags at this release
+        env:
+          VERSION: ${{ needs.package.outputs.version }}
+          LATEST: ${{ needs.docker.outputs.latest }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          minor="${VERSION%.*}"
+          minor_pattern="${minor//./\\.}"
+          newest_minor="$(gh api --paginate "repos/$GH_REPO/tags?per_page=100" --jq '.[].name' \
+            | grep -E "^v${minor_pattern}\\.[0-9]+$" | sort -V | tail -n 1)"
+          tags=()
+          if [[ "v$VERSION" == "$newest_minor" ]]; then
+            tags+=(--tag "$IMAGE:${VERSION%.*}")
+          fi
+          if [[ "$LATEST" == "auto" ]]; then
+            tags+=(--tag "$IMAGE:latest")
+          fi
+          if (( ${#tags[@]} )); then
+            docker buildx imagetools create "${tags[@]}" "$IMAGE:$VERSION"
+          fi

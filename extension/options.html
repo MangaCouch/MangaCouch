@@ -1,0 +1,43 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title data-i18n="optionsTitle">MangaCouch settings</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main>
+      <h1>MangaCouch</h1>
+      <form id="form">
+        <label
+          ><span data-i18n="serverLabel">Library address</span
+          ><input
+            id="server"
+            type="url"
+            required
+            placeholder="http://localhost:8780" /></label
+        ><label
+          ><span data-i18n="keyLabel">Download API key</span
+          ><input id="key" type="password" autocomplete="off" required
+        /></label>
+        <p class="hint" data-i18n="keyHint">
+          Create a key of kind "downloads" under Settings → Access &amp;
+          connections → API keys in the library. It can only add downloads.
+        </p>
+        <div class="actions">
+          <button data-i18n="saveButton">Save</button
+          ><button type="button" id="check" data-i18n="checkButton">
+            Check connection
+          </button>
+        </div>
+      </form>
+      <p role="status" id="status"></p>
+      <p role="status" id="connection" class="connection" hidden>
+        <span id="indicator" class="indicator" aria-hidden="true"></span
+        ><span id="connectionText"></span>
+      </p>
+    </main>
+    <script type="module" src="options.js"></script>
+  </body>
+</html>

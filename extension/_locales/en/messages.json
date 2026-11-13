@@ -1,0 +1,131 @@
+{
+  "extName": {
+    "message": "MangaCouch"
+  },
+  "extDescription": {
+    "message": "Send E(x)Hentai galleries to your MangaCouch download queue."
+  },
+  "optionsTitle": {
+    "message": "MangaCouch settings"
+  },
+  "settingsLabel": {
+    "message": "Settings"
+  },
+  "serverLabel": {
+    "message": "Library address"
+  },
+  "keyLabel": {
+    "message": "Download API key"
+  },
+  "keyHint": {
+    "message": "Create a key in Settings → Access & connections → API keys with the “Browser extension” permission."
+  },
+  "saveButton": {
+    "message": "Save"
+  },
+  "checkButton": {
+    "message": "Check connection"
+  },
+  "statusSaved": {
+    "message": "Saved"
+  },
+  "statusChecking": {
+    "message": "Checking the connection…"
+  },
+  "statusConnected": {
+    "message": "Connected. The API key “$LABEL$” is valid ($KIND$).",
+    "placeholders": {
+      "label": {
+        "content": "$1"
+      },
+      "kind": {
+        "content": "$2"
+      }
+    }
+  },
+  "statusSavedPermissionKept": {
+    "message": "Saved, but the old library permission could not be removed. Remove it in the browser's extension permissions."
+  },
+  "errorLoadSettings": {
+    "message": "Could not load settings."
+  },
+  "errorKeyRequired": {
+    "message": "Enter a download API key."
+  },
+  "errorPermissionDenied": {
+    "message": "Library permission was not granted."
+  },
+  "errorOrigin": {
+    "message": "Enter the library origin without a page path, for example http://localhost:8780."
+  },
+  "errorGallery": {
+    "message": "Open an E(x)Hentai gallery page."
+  },
+  "errorConfigure": {
+    "message": "Configure your library in Settings."
+  },
+  "errorPermissionMissing": {
+    "message": "Save Settings again to grant library access."
+  },
+  "errorKeyRejected": {
+    "message": "The API key is invalid or revoked."
+  },
+  "errorKeyReadOnly": {
+    "message": "This key is read-only. Create a key in Settings → Access & connections → API keys with the “Browser extension” permission."
+  },
+  "errorLibrary": {
+    "message": "The library returned an error ($STATUS$).",
+    "placeholders": {
+      "status": {
+        "content": "$1"
+      }
+    }
+  },
+  "errorResponse": {
+    "message": "Invalid library response."
+  },
+  "errorNetwork": {
+    "message": "Could not reach the library: $DETAIL$",
+    "placeholders": {
+      "detail": {
+        "content": "$1"
+      }
+    }
+  },
+  "addButton": {
+    "message": "Add to queue"
+  },
+  "queueButton": {
+    "message": "Open downloads"
+  },
+  "statusAdded": {
+    "message": "Added to downloads. Confirm any cost or download quality in the Downloads page."
+  },
+  "statusRequeued": {
+    "message": "Queued again. Follow it in Downloads."
+  },
+  "statusExisting": {
+    "message": "Already in Downloads; follow or continue it there."
+  },
+  "statusDownloaded": {
+    "message": "Already downloaded; the book is in the library. Use Download again under History in Downloads to fetch it again."
+  },
+  "errorPublicOrigin": {
+    "message": "Use the public address configured on the MangaCouch server."
+  },
+  "errorTimeout": {
+    "message": "The library did not respond within 15 seconds. Check its connection and try again."
+  },
+  "keyKind_downloads": {
+    "message": "Downloads only"
+  },
+  "keyKind_management": {
+    "message": "Full access"
+  },
+  "keyKind_readonly": {
+    "message": "Read-only"
+  },
+  "keyKind_session": {
+    "message": "Library session"
+  }
+}

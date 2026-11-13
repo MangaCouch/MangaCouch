@@ -1,0 +1,124 @@
+name: Main image
+# Every push to main whose CI run passes also publishes ghcr.io/mangacouch/mangacouch:main-<short sha>
+# and moves ghcr.io/mangacouch/mangacouch:main to the newest commit on main, so a server can follow the
+# development branch, bug fixes included, without a tagged release. Version tags and `latest` still come
+# only from release.yml. The image is built and smoke-checked exactly as in release.yml.
+#
+# CI runs can finish in any order, so the build job pushes only the immutable main-<short sha> tag and
+# never cancels another commit's build. The promote job then runs one at a time and points `main` at
+# the image of the current head of main, if that image exists yet (scripts/promote_main_image.py):
+# an older commit finishing last can no longer move `main` backwards.
+# workflow_dispatch rebuilds the current main; dispatched on any other ref it publishes nothing.
+on:
+  workflow_run:
+    workflows: [CI]
+    branches: [main]
+    types: [completed]
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  IMAGE: ghcr.io/mangacouch/mangacouch
+jobs:
+  build:
+    # A CI run started by release.yml through workflow_call is part of that workflow, not a CI run, so
+    # only pushes to main (and manual CI runs on main) arrive here. The branch filter matches the head
+    # branch name only, so a pull request from a fork's `main` is excluded by event and repository.
+    if: >-
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       contains(fromJSON('["push", "workflow_dispatch"]'), github.event.workflow_run.event) &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    # One build per commit; a later event never cancels an earlier commit's build or the other way round.
+    concurrency:
+      group: main-image-${{ github.event.workflow_run.head_sha || github.sha }}-${{ matrix.arch }}
+      cancel-in-progress: false
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - name: Short commit id
+        id: rev
+        # Always the first 7 characters of the full id, as scripts/promote_main_image.py derives it;
+        # `git rev-parse --short` may print more to stay unambiguous.
+        run: |
+          sha="$(git rev-parse HEAD)"
+          echo "short=${sha:0:7}" >> "$GITHUB_OUTPUT"
+      - name: Image tags and labels
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ env.IMAGE }}
+          # Only the immutable tag; the promote job moves `main`.
+          tags: |
+            type=raw,value=main-${{ steps.rev.outputs.short }}-${{ matrix.arch }}
+      - uses: ./.github/actions/build-image
+        with:
+          platforms: linux/${{ matrix.arch }}
+          smoke-platform: linux/${{ matrix.arch }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          push: 'true'
+          token: ${{ secrets.GITHUB_TOKEN }}
+          cache-scope: mangacouch-image-${{ matrix.arch }}
+  docker:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Merge native images
+        env:
+          SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          image="$IMAGE:main-${SHA:0:7}"
+          docker buildx imagetools create --tag "$image" "$image-amd64" "$image-arm64"
+  promote:
+    needs: docker
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    # Serialized: each run points `main` at the current head of main, so a queued run that GitHub
+    # replaces with a newer one loses nothing.
+    concurrency:
+      group: main-image-promote
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          sparse-checkout: scripts/promote_main_image.py
+          sparse-checkout-cone-mode: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Log in to ghcr.io
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Point main at the newest built head of main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/promote_main_image.py "$IMAGE" "${{ github.repository }}"

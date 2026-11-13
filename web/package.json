@@ -1,0 +1,45 @@
+{
+  "name": "mangacouch-web",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=26"
+  },
+  "scripts": {
+    "build": "npm run typecheck && vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.node.json",
+    "typecheck:python": "uv run node node_modules/pyright/index.js --project ../pyproject.toml",
+    "test": "node --import ./tests/register.mjs --test --test-timeout=60000 tests/*.test.mjs",
+    "test:downloads": "node --import ./tests/register.mjs --test --test-timeout=60000 tests/downloads.test.mjs tests/settings.test.mjs tests/navigation.test.mjs",
+    "test:integration": "node --import ./tests/register.mjs --test --test-timeout=60000 tests/integration/*.test.mjs",
+    "format": "prettier --write src tests *.json *.ts *.html",
+    "test:browser": "npm run build && npm run test:browser:ci",
+    "test:browser:ci": "playwright test",
+    "lint": "eslint src --max-warnings=0"
+  },
+  "dependencies": {
+    "lucide-react": "1.72.0",
+    "radix-ui": "1.8.1",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "sonner": "2.0.8"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.65.0",
+    "@testing-library/dom": "10.4.2",
+    "@testing-library/react": "16.3.3",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@typescript-eslint/parser": "8.72.2",
+    "eslint": "10.14.0",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "jsdom": "31.0.0",
+    "prettier": "3.10.1",
+    "pyright": "1.1.414",
+    "typescript": "6.0.3",
+    "vite": "8.3.8"
+  },
+  "overrides": {
+    "minimatch": "11.0.8"
+  }
+}

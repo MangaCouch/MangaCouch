@@ -1,0 +1,159 @@
+name: CI
+# Every push to main is checked; feature branches are not. Run it by hand on a branch with
+# `gh workflow run ci.yml --ref <branch>`. There is no concurrency group: a group would cancel a
+# queued run when a newer push arrives, and release.yml expects a CI run for each tagged commit.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  web:
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm --prefix web ci
+      - run: npm --prefix web run build
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: web-bundle
+          path: src/mangacouch/web
+          if-no-files-found: error
+          retention-days: 7
+  # Checks that do not depend on the Python version or the OS run once, on Linux.
+  static:
+    needs: web
+    timeout-minutes: 20
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          python-version: "3.15"
+      - run: uv sync --locked
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm --prefix web ci
+      - run: npm --prefix web run lint
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: web-bundle
+          path: src/mangacouch/web
+      - run: uv run ruff check src tests
+      # Pyright checks against pythonVersion = "3.12" from pyproject.toml, whatever Python runs it.
+      - run: npm --prefix web run typecheck:python
+      - name: Web unit tests
+        run: npm --prefix web test
+      - name: Playwright version
+        id: playwright
+        run: echo "version=$(node -p 'require("./web/node_modules/@playwright/test/package.json").version')" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ steps.playwright.outputs.version }}
+      - name: Install browser for acceptance tests
+        run: npx --prefix web playwright install --with-deps chromium
+      # Four workers, each with its own fixture server (web/tests/browser/fixtures.ts).
+      - name: Browser acceptance
+        run: npm --prefix web run test:browser:ci
+      - name: Extension tests
+        run: node --test --test-timeout=60000 extension/*.test.mjs
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: failure()
+        with:
+          name: browser-test-results
+          path: web/test-results
+          retention-days: 7
+  # Packaging is separate from the static checks so the test matrix does not wait for them.
+  packages:
+    needs: web
+    timeout-minutes: 10
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          python-version: "3.15"
+      - run: uv sync --locked
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: web-bundle
+          path: src/mangacouch/web
+      - run: uv build
+      - run: uv run python scripts/check_packages.py dist
+      - run: uv export --frozen --extra desktop --no-dev --no-hashes --no-emit-project --no-annotate --no-header --output-file dist/constraints.txt
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-packages
+          path: dist
+          if-no-files-found: error
+          retention-days: 7
+  check:
+    needs: packages
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.12", "3.13", "3.14", "3.15"]
+    # Keep the timeout margin for slow Windows filesystem operations.
+    timeout-minutes: 35
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # %TEMP% is on the system drive, where a Windows runner takes about 4 ms to sync a file; the
+      # drive that holds the workspace takes about 0.2 ms. The tests sync constantly, so pytest
+      # needed four minutes with its temporary libraries on C: and a little over one beside the
+      # workspace (measured 2026-11-10; Defender is already off and a Dev Drive was no faster).
+      - name: Keep temporary files off the slow Windows system drive
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $Tmp = Join-Path $env:RUNNER_TEMP "tmp"
+          New-Item $Tmp -ItemType Directory | Out-Null
+          "TEMP=$Tmp", "TMP=$Tmp" >> $env:GITHUB_ENV
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          python-version: ${{ matrix.python }}
+      - run: uv sync --locked
+      # Node runs the React and ASGI integration tests on every matrix combination.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm --prefix web ci
+      # Test and package the identical bundle on every platform and Python version.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: web-bundle
+          path: src/mangacouch/web
+      - run: uv run pytest -q -n 4 --dist worksteal --durations=15
+      - name: React and ASGI integration
+        shell: bash
+        run: MANGACOUCH_TEST_PYTHON="$(uv run python -c 'import sys; print(sys.executable)')" npm --prefix web run test:integration
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-packages
+          path: dist
+      - name: Install the release with its locked dependencies
+        shell: bash
+        run: |
+          uv venv release-env
+          if [[ "${RUNNER_OS}" == "Windows" ]]; then
+            release_python=release-env/Scripts/python.exe
+          else
+            release_python=release-env/bin/python
+          fi
+          uv pip install --python "$release_python" -c dist/constraints.txt dist/*.whl
+          "$release_python" scripts/check_installation.py

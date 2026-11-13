@@ -1,0 +1,131 @@
+{
+  "extName": {
+    "message": "MangaCouch"
+  },
+  "extDescription": {
+    "message": "将 E(x)Hentai 作品加入 MangaCouch 下载队列。"
+  },
+  "optionsTitle": {
+    "message": "MangaCouch 设置"
+  },
+  "settingsLabel": {
+    "message": "设置"
+  },
+  "serverLabel": {
+    "message": "书库地址"
+  },
+  "keyLabel": {
+    "message": "下载 API key"
+  },
+  "keyHint": {
+    "message": "在“设置 → 访问与连接 → API 密钥”中创建密钥，权限选“浏览器扩展”。"
+  },
+  "saveButton": {
+    "message": "保存"
+  },
+  "checkButton": {
+    "message": "检查连接"
+  },
+  "statusSaved": {
+    "message": "已保存"
+  },
+  "statusChecking": {
+    "message": "正在检查连接…"
+  },
+  "statusConnected": {
+    "message": "已连接，API key「$LABEL$」有效（$KIND$）。",
+    "placeholders": {
+      "label": {
+        "content": "$1"
+      },
+      "kind": {
+        "content": "$2"
+      }
+    }
+  },
+  "statusSavedPermissionKept": {
+    "message": "新设置已保存，但旧书库权限未能移除。请在浏览器的扩展权限中移除旧地址。"
+  },
+  "errorLoadSettings": {
+    "message": "无法读取设置。"
+  },
+  "errorKeyRequired": {
+    "message": "请输入下载 API key。"
+  },
+  "errorPermissionDenied": {
+    "message": "未授予书库访问权限。"
+  },
+  "errorOrigin": {
+    "message": "请输入书库的完整访问地址，不含页面路径，例如 http://localhost:8780。"
+  },
+  "errorGallery": {
+    "message": "请打开 E(x)Hentai 作品页。"
+  },
+  "errorConfigure": {
+    "message": "请先在设置中配置书库。"
+  },
+  "errorPermissionMissing": {
+    "message": "请重新保存设置以授予书库访问权限。"
+  },
+  "errorKeyRejected": {
+    "message": "API key 无效或已撤销。"
+  },
+  "errorKeyReadOnly": {
+    "message": "此密钥为只读。请在“设置 → 访问与连接 → API 密钥”中创建密钥，权限选“浏览器扩展”。"
+  },
+  "errorLibrary": {
+    "message": "书库返回错误（$STATUS$）。",
+    "placeholders": {
+      "status": {
+        "content": "$1"
+      }
+    }
+  },
+  "errorResponse": {
+    "message": "书库响应无效。"
+  },
+  "errorNetwork": {
+    "message": "无法连接书库：$DETAIL$",
+    "placeholders": {
+      "detail": {
+        "content": "$1"
+      }
+    }
+  },
+  "addButton": {
+    "message": "加入下载队列"
+  },
+  "queueButton": {
+    "message": "打开下载页"
+  },
+  "statusAdded": {
+    "message": "已加入下载。如需确认费用或下载质量，请在下载页处理。"
+  },
+  "statusRequeued": {
+    "message": "已重新加入队列，可在下载页查看进度。"
+  },
+  "statusExisting": {
+    "message": "已有这个下载任务，可在下载页查看或继续。"
+  },
+  "statusDownloaded": {
+    "message": "已下载过，书在书库中；如需再次下载，请在下载页“已结束”中选择“重新下载”。"
+  },
+  "errorPublicOrigin": {
+    "message": "请填写与服务器配置的公开地址一致的地址。"
+  },
+  "errorTimeout": {
+    "message": "书库在 15 秒内未响应，请检查连接后重试。"
+  },
+  "keyKind_downloads": {
+    "message": "仅添加下载"
+  },
+  "keyKind_management": {
+    "message": "完全访问"
+  },
+  "keyKind_readonly": {
+    "message": "只读"
+  },
+  "keyKind_session": {
+    "message": "书库会话"
+  }
+}
