@@ -67,7 +67,7 @@ from .errors import InvalidInput, NotFound, RevisionConflict
 from .files import CHUNK_SIZE, RootUnavailable, hash_file, set_thread_cancel
 from .ingest import FileLibrary, ImportResult
 from .logs import short_id
-from .models import EH_SITES, Metadata, NativeSidecar, Source, canonical_json, site_group
+from .models import Metadata, NativeSidecar, Source, canonical_json, site_group
 from .online import OnlineMetadata
 from .sidecars import SidecarSync
 from .source_adapters import GDATA_BATCH, REUSABLE_ARCHIVE_TTL, Sources, archive_remote
@@ -738,8 +738,6 @@ class Downloads:
             if job["revision"] != revision and (action != "cancel" or strict_revision):
                 raise RevisionConflict("Download changed")
             state, details, source = job["state"], job["details"], Source.model_validate(job["source"])
-            if source.site not in EH_SITES and action != "cancel":
-                raise InvalidInput("This source is no longer supported", code="source_retired")
             if action == "cancel":
                 if state == "done":
                     raise InvalidInput("Completed download is already in the library", code="download_done")

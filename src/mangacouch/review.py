@@ -11,7 +11,7 @@ from .database import Book
 from .errors import InvalidInput, NotFound, RevisionConflict
 from .files import ContentChanged, file_stamp
 from .ingest import FileLibrary, image_bytes
-from .models import EH_SITES, Content, FieldName, Metadata, Source, canonical_json, normalized
+from .models import Content, FieldName, Metadata, Source, canonical_json, normalized
 
 LOCAL_RULE = "local-confirmation/1"
 EVENT_RETENTION = 90 * 86400
@@ -33,6 +33,18 @@ def _equivalent(left: object, right: object) -> bool:
     if isinstance(left, str) and isinstance(right, str):
         return normalized(left.strip()) == normalized(right.strip())
     return left == right
+
+
+def settle_source_check(db: sqlite3.Connection, book_id: str) -> None:
+    """Close the book's source check once the book is confirmed.
+
+    A check left at needs_review only reported review reasons (an error code means the check
+    itself failed); confirming the book, by hand or automatically, resolves those reasons."""
+    db.execute(
+        "UPDATE source_check SET state='done',generation=generation+1,reasons_json='[]',retry_at=0,"
+        "updated_at=unixepoch() WHERE book_id=? AND state='needs_review' AND error_code IS NULL",
+        (book_id,),
+    )
 
 
 class Review:
@@ -131,7 +143,6 @@ class Review:
             metadata.declared_byte_size is not None
             and online is not None
             and metadata.source is not None
-            and metadata.source.site in EH_SITES
             and content.format == "cbz"
         ):
             byte_size_basis = "images"
@@ -330,6 +341,7 @@ class Review:
         }
         if not reasons:
             db.execute("UPDATE book SET review_state='confirmed' WHERE id=?", (book_id,))
+            settle_source_check(db, book_id)
             self.record_event(db, book_id, "auto_confirm", details)
         elif record_failure:
             self.record_event(db, book_id, "auto_check", details)
@@ -363,6 +375,7 @@ class Review:
                     code="acknowledgement_required",
                 )
             db.execute("UPDATE book SET review_state='confirmed' WHERE id=?", (book_id,))
+            settle_source_check(db, book_id)
             self.record_event(
                 db,
                 book_id,

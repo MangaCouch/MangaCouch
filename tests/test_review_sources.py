@@ -201,26 +201,6 @@ def test_source_check_page_overflow_is_rejected(api):
     assert response.status_code == 422
 
 
-def test_bulk_source_refresh_reports_retired_books_as_ignored(files):
-    import uuid
-
-    from helpers import content, register_book
-
-    from mangacouch.models import Metadata
-    from mangacouch.organization import BulkAction, BulkSelectionRequest, Organization
-
-    book, _ = register_book(
-        files.library, content("retired"), Metadata(source=Source(site="nhentai", gallery_id=100))
-    )
-    org = Organization(files.library)
-    job = org.create_bulk(
-        BulkSelectionRequest(id=str(uuid.uuid4()), action=BulkAction(kind="source"), book_ids=[book.id])
-    )
-    org.advance(budget=10)
-    counts = org.bulk(job["id"])["counts"]
-    assert counts["done"] == 0 and counts["ignored"] == 1
-
-
 def ex_books(service, files, tmp_path, count: int) -> list[str]:
     """`count` imported ExHentai books, each with a queued source check."""
     from helpers import make_zip
@@ -453,65 +433,6 @@ def test_exhentai_comments_with_cookie_stay_on_exhentai(queue):
     assert {request.url.host for request in remote.requests} == {"exhentai.org"}
 
 
-def test_an_eh_check_failure_is_ignored_once_the_source_changes_to_nh(queue, files, tmp_path):
-    from test_sources import local_with_source
-
-    from mangacouch.review import Review
-
-    service, remote = queue
-    book = local_with_source(files, tmp_path, service)
-    remote.removed = {100}
-    assert service.checks.step()
-    check = service.checks.get(book.id)
-    assert check and (check["state"], check["error_code"]) == ("needs_review", "gallery_unavailable")
-    assert service.checks.attention(1, 20) == ([book.id], 1)
-    current = files.library.get_book(book.id)
-    Review(files).edit(
-        book.id,
-        current.metadata.model_copy(update={"source": Source(site="nhentai", gallery_id=5)}),
-        expected_revision=current.metadata_revision,
-    )
-    check = service.checks.get(book.id)
-    assert check and (check["state"], check["error_code"], check["reasons"]) == ("ignored", None, [])
-    assert service.checks.attention(1, 20) == ([], 0)
-
-
-def test_retrying_a_failed_pasted_link_of_an_nh_book_leaves_its_check_ignored(queue, files, tmp_path):
-    """The retry runs the pasted E-Hentai link again; the check of the book's own (nH) source
-    settles as ignored instead of a red unsupported_source failure."""
-    from helpers import make_zip
-
-    from mangacouch.models import Metadata
-    from mangacouch.online import FAILED_TASK
-    from mangacouch.review import Review
-
-    service, _ = queue
-    book = files.import_file(make_zip(tmp_path / "a.zip")).book
-    Review(files).edit(
-        book.id, Metadata(title="Kept", source=Source(site="nhentai", gallery_id=200)), expected_revision=1
-    )
-    with files.library.transaction() as db:
-        db.execute(
-            "INSERT INTO source_check(book_id,state,error_code,reasons_json,updated_at) "
-            "VALUES(?,'needs_review','gallery_unavailable','[\"gallery_unavailable\"]',0) "
-            "ON CONFLICT(book_id) DO UPDATE SET state='needs_review',error_code='gallery_unavailable'",
-            (book.id,),
-        )
-        db.execute("INSERT INTO source_task VALUES(?,?,'metadata',1,?,0)", (book.id, EH, FAILED_TASK))
-    check = service.checks.get(book.id)
-    assert check
-    service.checks.action(book.id, "retry", check["generation"])
-    service.http.transport.handler = lambda request: httpx.Response(503, text="x" * 4000)
-    for _ in range(3):
-        service.checks.step()
-    check = service.checks.get(book.id)
-    assert check and (check["state"], check["error_code"], check["reasons"]) == ("ignored", None, [])
-    assert service.checks.attention(1, 20) == ([], 0)
-    with files.library.connection() as db:
-        # The pasted link is still owed, waiting out the passing failure.
-        assert db.execute("SELECT count(*) FROM source_task WHERE book_id=?", (book.id,)).fetchone()[0] == 1
-
-
 def test_a_halt_takes_the_write_lock_once_not_every_second(queue, files, tmp_path, monkeypatch):
     from test_sources import local_with_source
 
@@ -533,3 +454,31 @@ def test_a_halt_takes_the_write_lock_once_not_every_second(queue, files, tmp_pat
     for _ in range(5):
         assert not service.checks.step()
     assert len(transactions) == 1
+
+
+@pytest.mark.parametrize("resolution", ["acknowledge", "edit"])
+def test_confirming_a_book_closes_its_source_check(queue, files, tmp_path, resolution):
+    """A check left at needs_review drops out of the unfinished list once the book is confirmed,
+    whether the owner acknowledges the reasons or edits them away."""
+    from test_sources import local_with_source
+
+    from mangacouch.review import Review
+
+    service, remote = queue
+    remote.tags = ["artist:Example"]
+    book = local_with_source(files, tmp_path, service)
+    service.checks.step()
+    check = service.checks.get(book.id)
+    assert (check["state"], check["reasons"]) == ("needs_review", ["language_unknown"])
+    generation = check["generation"]
+    review = Review(files)
+    if resolution == "acknowledge":
+        review.complete(book.id, review.preview(book.id)["token"], ["language_unknown"])
+    else:
+        current = files.library.get_book(book.id)
+        edited = current.metadata.model_copy(update={"language": "japanese"})
+        review.edit(book.id, edited, expected_revision=current.metadata_revision)
+    assert files.library.get_book(book.id).review_state == "confirmed"
+    check = service.checks.get(book.id)
+    assert (check["state"], check["reasons"]) == ("done", [])
+    assert check["generation"] > generation

@@ -90,7 +90,7 @@ A book linked to an E(x)Hentai gallery is checked against its source when you ch
 
 Checks read gallery metadata only, unless **Fetch comments in background source checks too (one more request per book)** is on (it is off by default, and needs **Fetch source comments**); the **Update source comments** button in a book's **Source comments** panel fetches them on request. Stored comments change only when a comment fetch completes: with comments off, or when the comment page fails (rate limit or warning page, blank page), the comments saved earlier stay as they were. Comments that a rate limit kept back are fetched again in the background once it allows. Without an ExHentai cookie, the comments of an ExHentai gallery are read from its e-hentai.org page (the metadata already comes from the E-Hentai API); a gallery that exists only on ExHentai then reports that a login is needed.
 
-Online checks automatically ignore retired nH sources; local metadata, source links and cached comments remain available. Bulk source checks report these books as ignored rather than successfully queued. Changes to an online rating alone do not reopen a confirmed metadata review.
+Changes to an online rating alone do not reopen a confirmed metadata review.
 
 The detail page’s **Review metadata** opens the local review dialog; it does not queue an online check.
 

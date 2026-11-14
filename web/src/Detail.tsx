@@ -27,7 +27,7 @@ import { Modal } from "./Modal";
 import { Rating } from "./Rating";
 import { Cover } from "./Cover";
 import { thumbnailPath } from "./pages";
-import { siteLabel, sourceURL } from "./identifiers";
+import { SITE_LABEL, sourceURL } from "./identifiers";
 import type { PersonalQueue, SaveStatus } from "./personal";
 import { readingStatus } from "./reading";
 import { useBookTitle } from "./PreferenceContext";
@@ -354,7 +354,7 @@ export function Detail({
                   title={t("在来源网站打开", "Open at the source site")}
                 >
                   <ExternalLink size={12} aria-hidden="true" />
-                  {siteLabel(book.metadata.source.site)}
+                  {SITE_LABEL}
                 </a>
               )}
               {newest && (

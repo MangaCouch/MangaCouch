@@ -10,7 +10,7 @@ from pydantic import Field, model_validator
 from .cursors import decode_cursor, encode_cursor
 from .database import Library, write_personal
 from .errors import InvalidInput, NotFound, RevisionConflict
-from .models import EH_SITES, Model, PersonalState, Tag, canonical_json, label_key, normalized
+from .models import Model, PersonalState, Tag, canonical_json, label_key, normalized
 from .searching import SearchOptions, rule_conditions, search_count
 from .source_checks import enqueue_check
 
@@ -284,8 +284,6 @@ class Organization:
             return "conflict"
         if row[1] is None:
             return "error"
-        if json.loads(row[1])["site"] not in EH_SITES:
-            return "ignored"
         enqueue_check(db, item["book_id"])
         db.execute(
             "UPDATE source_check SET state='queued',generation=generation+1,error_code=NULL,"

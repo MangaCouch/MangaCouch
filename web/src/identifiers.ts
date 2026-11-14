@@ -11,11 +11,8 @@ export const jobId = () => {
 };
 /** Canonical gallery URL for a source identity (E-Hentai/ExHentai include the token). */
 export const sourceURL = (source: Source | null | undefined): string =>
-  source?.site === "nhentai"
-    ? `https://nhentai.net/g/${source.gallery_id}/`
-    : source?.site === "ehentai" || source?.site === "exhentai"
-      ? `https://${source.site === "ehentai" ? "e-hentai.org" : "exhentai.org"}/g/${source.gallery_id}/${source.gallery_token}/`
-      : "";
-/** A source site's name; E-Hentai and ExHentai list the same galleries, so they share one. */
-export const siteLabel = (site: string) =>
-  site === "nhentai" ? "nHentai" : "E(x)Hentai";
+  source
+    ? `https://${source.site === "ehentai" ? "e-hentai.org" : "exhentai.org"}/g/${source.gallery_id}/${source.gallery_token}/`
+    : "";
+/** The source site's name; E-Hentai and ExHentai list the same galleries, so they share one. */
+export const SITE_LABEL = "E(x)Hentai";

@@ -43,10 +43,10 @@ from mangacouch.source_http import SourceError, SourceHTTP, ban_seconds, gallery
 @pytest.mark.parametrize(
     "url",
     [
-        "https://nhentai.net.evil/g/1/",
-        "https://user@nhentai.net/g/1/",
+        "https://e-hentai.org.evil/g/1/ab/",
+        "https://user@e-hentai.org/g/1/ab/",
         "http://127.0.0.1/g/1/",
-        "https://nhentai.net:22/g/1/",
+        "https://e-hentai.org:22/g/1/ab/",
         "https://e-hentai.org/g/1/not-hex/",
     ],
 )
@@ -684,8 +684,6 @@ def resolver(table: dict[str, str]):
 def test_gallery_links_accept_www_and_g_hosts_but_not_lookalikes():
     assert gallery_url("https://g.e-hentai.org/g/1/ab/").url == "https://e-hentai.org/g/1/ab/"
     assert gallery_url("https://www.exhentai.org/g/1/ab/").url == "https://exhentai.org/g/1/ab/"
-    with pytest.raises(ValueError):
-        gallery_url("https://www.nhentai.net/g/7/")
     for url in ("https://x.e-hentai.org/g/1/ab/", "https://e-hentai.org.evil/g/1/ab/"):
         with pytest.raises(ValueError):
             gallery_url(url)

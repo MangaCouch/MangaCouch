@@ -69,7 +69,6 @@ const importName = (name: string, t: Translate) =>
     ? {
         "online:ehentai": "E-Hentai",
         "online:exhentai": "ExHentai",
-        "online:nhentai": "nHentai",
       }[name] || name
     : name === "native"
       ? t("Native 元数据", "Native metadata")

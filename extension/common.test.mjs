@@ -40,15 +40,13 @@ test("extension canonicalizes gallery identity and rejects credential-bearing or
     galleryURL("https://e-hentai.org/g/20/abc/?utm=x"),
     "https://e-hentai.org/g/20/abc/",
   );
-  assert.throws(() => galleryURL("https://nhentai.net.evil/g/20/"));
+  assert.throws(() => galleryURL("https://e-hentai.org.evil/g/20/abc/"));
   // Every host the library itself accepts.
   for (const host of ["www.e-hentai.org", "g.e-hentai.org", "www.exhentai.org"])
     assert.equal(
       galleryURL(`https://${host}/g/1/abc?p=1`),
       `https://${host}/g/1/abc/`,
     );
-  for (const host of ["nhentai.net", "www.nhentai.net"])
-    assert.throws(() => galleryURL(`https://${host}/g/20/`));
   assert.throws(() => galleryURL("https://m.e-hentai.org/g/1/abc/"));
   assert.throws(() => galleryURL(""), {
     message: messages.errorGallery.message,

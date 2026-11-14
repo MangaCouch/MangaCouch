@@ -31,7 +31,6 @@ from .models import Content, Metadata, PersonalState, canonical_json
 from .page_features import bands
 from .preferences import display_title, preferred_title
 from .sidecars import sidecar_path
-from .source_checks import retire_unsupported
 
 RETENTION_SECONDS = 7 * 86400
 # Rebuilt from the restored metadata by write_tags, so restoring them explicitly would duplicate rows.
@@ -845,7 +844,6 @@ class Removals:
                     raise RevisionConflict(
                         "These books are already in the library again", code="removal_already_restored"
                     )
-                retire_unsupported(db)
                 self._place(db, restored, rows)
                 for item in current["items"]:
                     if item["book_id"] in restored:

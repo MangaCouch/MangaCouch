@@ -49,8 +49,6 @@ def language(tags: list[Tag]) -> str | None:
 
 
 def archive_endpoint(source: Source) -> str:
-    if source.site not in EH_SITES:
-        raise SourceError("unsupported_source")
     return f"https://{urlsplit(source.url).hostname}/archiver.php?" + urlencode(
         {"gid": source.gallery_id, "token": source.gallery_token}
     )
@@ -301,8 +299,6 @@ class Sources:
     def fetch(self, source: Source, *, comments: bool = True, cancelled=None) -> dict:
         """One gallery's observation. Only the code reading a response turns malformed data into
         source_protocol (`parsing`); a programming error elsewhere stays an error."""
-        if source.site not in EH_SITES:
-            raise SourceError("unsupported_source")
         return self._eh(source, comments, cancelled)
 
     def preferred(self, source: Source, *, comments: bool = True, cancelled=None) -> dict:

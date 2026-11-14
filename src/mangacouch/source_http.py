@@ -914,9 +914,6 @@ class SourceHTTP:
 
         try:
             for _ in range(6):
-                host = (urlsplit(url).hostname or "").rstrip(".").lower()
-                if host == "nhentai.net" or host.endswith(".nhentai.net"):
-                    raise SourceError("unsupported_source", unsent=True)
                 public_url(
                     url,
                     resolve=self.transport is None and not secrets.get("proxy"),

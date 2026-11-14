@@ -9,7 +9,6 @@ import zipfile
 import httpx
 
 EH = "https://e-hentai.org/g/100/abcdef/"
-NH = "https://nhentai.net/g/200/"
 ARCHIVE = "https://archive.example/archive/example?token=fixture"
 
 

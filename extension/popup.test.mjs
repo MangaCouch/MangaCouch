@@ -91,12 +91,10 @@ test("a successful add says whether the gallery was new", async (t) => {
   assert.equal(elements.status.textContent, messages.statusRequeued.message);
 });
 
-test("nHentai pages are refused and E-Hentai pages can be sent", async () => {
-  for (const host of ["nhentai.net", "www.nhentai.net"]) {
-    await open({ config: configured, url: `https://${host}/g/20/` });
-    assert.equal(elements.send.disabled, true);
-    assert.equal(elements.status.textContent, messages.errorGallery.message);
-  }
+test("other sites' pages are refused and E-Hentai pages can be sent", async () => {
+  await open({ config: configured, url: "https://example.org/g/20/" });
+  assert.equal(elements.send.disabled, true);
+  assert.equal(elements.status.textContent, messages.errorGallery.message);
   await open({ config: configured, url: "https://g.e-hentai.org/g/1/abc/" });
   assert.equal(elements.send.disabled, false);
 });

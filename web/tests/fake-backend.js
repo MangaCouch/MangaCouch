@@ -1000,11 +1000,7 @@
             if (!body.action.completed) book.personal.resume_page = null;
           }
           if (body.action.kind === "source" && book.metadata.source)
-            book.source_check = {
-              state:
-                book.metadata.source?.site === "nhentai" ? "ignored" : "queued",
-              generation: 1,
-            };
+            book.source_check = { state: "queued", generation: 1 };
           if (["rating", "completed"].includes(body.action.kind))
             book.personal_revision++;
         }
@@ -1026,13 +1022,6 @@
         const errors = selected.filter((book) => !book.metadata.source).length;
         job.counts.error = errors;
         job.counts.done -= errors;
-        const ignored = selected.filter(
-          (book) => book.metadata.source?.site === "nhentai",
-        ).length;
-        if (ignored) {
-          job.counts.ignored = ignored;
-          job.counts.done -= ignored;
-        }
       }
       fixture.bulkJobs[body.id] = job;
       return json(job);
@@ -1066,11 +1055,6 @@
         cooldowns: fixture.sourceCooldowns,
       });
     const transition = (job, action, mode = "org", target = null) => {
-      if (
-        action !== "cancel" &&
-        !["ehentai", "exhentai"].includes(job.source?.site)
-      )
-        return "source_retired";
       const active = ["inspecting", "submitting", "downloading", "importing"],
         state = job.state;
       let next;
@@ -2006,11 +1990,6 @@
       const { action: command } = JSON.parse(options.body);
       if (command === "retry" && !book.metadata.source)
         return json({ error: "source_absent" }, 422);
-      if (
-        command === "retry" &&
-        !["ehentai", "exhentai"].includes(book.metadata.source?.site)
-      )
-        return json({ error: "source_retired" }, 422);
       book.source_check = {
         ...check,
         state: command === "skip" ? "ignored" : "queued",

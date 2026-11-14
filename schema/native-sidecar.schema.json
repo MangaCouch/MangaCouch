@@ -234,8 +234,7 @@
         "site": {
           "enum": [
             "ehentai",
-            "exhentai",
-            "nhentai"
+            "exhentai"
           ],
           "title": "Site",
           "type": "string"
@@ -247,22 +246,15 @@
           "type": "integer"
         },
         "gallery_token": {
-          "anyOf": [
-            {
-              "pattern": "^[a-zA-Z0-9]{1,64}$",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Gallery Token"
+          "pattern": "^[a-zA-Z0-9]{1,64}$",
+          "title": "Gallery Token",
+          "type": "string"
         }
       },
       "required": [
         "site",
-        "gallery_id"
+        "gallery_id",
+        "gallery_token"
       ],
       "title": "Source",
       "type": "object"

@@ -86,7 +86,7 @@ def test_reverting_all_fields_reuses_exact_confirmation_and_keeps_personal_state
         {"language": "中文"},
         {"uploader": "another"},
         {"declared_page_count": 100},
-        {"source": Source(site="nhentai", gallery_id=123)},
+        {"source": Source(site="exhentai", gallery_id=123, gallery_token="abc")},
     ],
 )
 def test_any_semantic_field_change_invalidates_existing_proof(

@@ -6,11 +6,11 @@ import json
 from .eze import export_eze, eze_path
 from .files import RootUnavailable, atomic_write, file_stamp
 from .maintenance import Retry
-from .models import EH_SITES, Metadata, canonical_json
+from .models import Metadata, canonical_json
 
 
 def queue_eze(db, book_id: str, metadata: Metadata, *, fetched_at=None, gdata=None):
-    if metadata.source is None or metadata.source.site not in EH_SITES:
+    if metadata.source is None:
         return
     payload = canonical_json(export_eze(metadata, fetched_at=fetched_at, gdata=gdata))
     db.execute(

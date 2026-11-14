@@ -3,9 +3,9 @@ export interface Tag {
   value: string;
 }
 export interface Source {
-  site: "ehentai" | "exhentai" | "nhentai";
+  site: "ehentai" | "exhentai";
   gallery_id: number;
-  gallery_token: string | null;
+  gallery_token: string;
 }
 interface SourceRating {
   average: number;
@@ -34,7 +34,7 @@ export interface SourceNotes {
 /** A book's background source check (`source_check` row). */
 export interface SourceCheck {
   book_id: string;
-  state: "queued" | "running" | "done" | "needs_review" | "ignored";
+  state: "queued" | "running" | "done" | "needs_review";
   generation: number;
   /** The failure of the last run; while queued, the passing failure it retries after. */
   error_code: string | null;

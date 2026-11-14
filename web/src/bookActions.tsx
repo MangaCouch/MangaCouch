@@ -194,14 +194,6 @@ export function useBookActions({
           ),
           { id, duration: 8000 },
         );
-      else if (counts.ignored)
-        toast(
-          t(
-            `已处理 ${counts.done ?? 0} 本；自动忽略 ${counts.ignored} 本已退役来源。`,
-            `Processed ${counts.done ?? 0}; ignored ${counts.ignored} retired sources.`,
-          ),
-          { id },
-        );
       else toast.success(done, { id });
     } catch (error) {
       if (

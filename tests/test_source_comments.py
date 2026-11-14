@@ -3,7 +3,7 @@ from __future__ import annotations
 import httpx
 import pytest
 from helpers import make_zip
-from source_fixtures import EH, NH, TOO_FAST, SourceFixture, end_halts
+from source_fixtures import EH, TOO_FAST, SourceFixture, end_halts
 
 from mangacouch.database import RevisionConflict
 from mangacouch.models import SourceComment, SourceNotes
@@ -171,5 +171,3 @@ def test_comment_refresh_never_touches_curated_metadata_review_or_sidecar(files,
             db.execute("SELECT pending_revision FROM sidecar_sync WHERE book_id=?", (book.id,)).fetchone()
             == sidecar
         )
-    with pytest.raises(ValueError):
-        online.refresh_comments(book.id, gallery_url(NH))

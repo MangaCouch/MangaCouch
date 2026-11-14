@@ -123,10 +123,6 @@ export const sourceErrors: Record<string, [string, string]> = {
     "不支持该网站，请粘贴 E-Hentai 或 ExHentai 链接。",
     "Unsupported site. Paste an E-Hentai or ExHentai link.",
   ],
-  source_retired: [
-    "该来源的在线服务已停用，本地书籍和元数据会保留。",
-    "Online services for this source were retired. Local books and metadata are kept.",
-  ],
   source_key_lost: [
     "来源凭据的密钥丢失或与数据库不匹配，在线来源已停用。请在“设置 → 来源账户与下载”重置来源凭据。",
     "The source credential key is missing or does not match the database, so online sources are off. Reset the source credentials in Settings → Source accounts & downloads.",

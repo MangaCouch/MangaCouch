@@ -10,7 +10,7 @@ from .database import RevisionConflict
 from .errors import InvalidInput, NotFound
 from .eze_cache import EzeCache, queue_eze
 from .ingest import FileLibrary
-from .models import EH_SITES, FieldName, Metadata, Source, canonical_json
+from .models import FieldName, Metadata, Source, canonical_json
 from .review import Review
 from .source_adapters import Sources, bounded_comments
 from .source_http import SourceError
@@ -228,9 +228,7 @@ class OnlineMetadata:
                 current_source is None
                 or current_source == source
                 or (
-                    current_source.site in EH_SITES
-                    and source.site in EH_SITES
-                    and current_source.gallery_id == source.gallery_id
+                    current_source.gallery_id == source.gallery_id
                     and current_source.gallery_token == source.gallery_token
                 )
             )

@@ -37,7 +37,7 @@ import { BackButton } from "./navigation";
 import { Pill } from "./Pills";
 import { ApiError, errorMessage, post, request } from "./api";
 import { bytes } from "./format";
-import { siteLabel, sourceURL } from "./identifiers";
+import { SITE_LABEL, sourceURL } from "./identifiers";
 import { usePolling } from "./polling";
 import { sourceMessage } from "./sourceErrors";
 import type { Metadata, Source, Translate } from "./types";
@@ -104,11 +104,6 @@ type Outcome = {
   book?: string | null;
 };
 const BATCH_SIZE = 100;
-/** The code a job row explains: nHentai history rows were cancelled when that source retired. */
-const jobError = (job: Job) =>
-  job.source.site === "nhentai" && job.error_code === "unsupported_source"
-    ? "source_retired"
-    : (job.error_code ?? "");
 
 export function Downloads({
   t,
@@ -486,7 +481,6 @@ export function Downloads({
     if (action === "clear") return canClear(job);
     if (action === "pause") return pausable(job.state);
     if (action === "cancel") return cancellable(job.state);
-    if (job.source.site === "nhentai") return false;
     if (action === "resume") return resumable.includes(job.state);
     if (action === "redownload") return job.state === "cancelled";
     return job.state === "needs_approval" && price(job) != null;
@@ -732,10 +726,7 @@ export function Downloads({
         )}
         {chosen.length > 0 && scope === "history" && (
           <div className="actions">
-            {chosen.some(
-              (job) =>
-                job.source.site !== "nhentai" && job.state === "cancelled",
-            ) && (
+            {chosen.some((job) => job.state === "cancelled") && (
               <button
                 disabled={
                   !!busy || !chosen.some((job) => eligible(job, "redownload"))
@@ -827,12 +818,7 @@ export function Downloads({
               },
               {
                 label: t("继续／重试", "Resume / retry"),
-                disabled:
-                  !!busy ||
-                  !(
-                    job.source.site !== "nhentai" &&
-                    resumable.includes(job.state)
-                  ),
+                disabled: !!busy || !resumable.includes(job.state),
                 action: () => void act(job, "resume"),
               },
               {
@@ -847,10 +833,7 @@ export function Downloads({
               },
               {
                 label: t("重新下载", "Download again"),
-                disabled:
-                  !!busy ||
-                  !terminalStates.includes(job.state) ||
-                  job.source.site === "nhentai",
+                disabled: !!busy || !terminalStates.includes(job.state),
                 action: () => void act(job, "redownload"),
               },
               {
@@ -890,7 +873,7 @@ export function Downloads({
                     {job.details.selected?.metadata.title || job.input_url}
                   </a>
                   <div className="tags">
-                    <Pill kind="source">{siteLabel(job.source.site)}</Pill>
+                    <Pill kind="source">{SITE_LABEL}</Pill>
                     <Pill>
                       {activeStates.includes(job.state) && (
                         <LoaderCircle size={12} className="spinner" />
@@ -913,16 +896,15 @@ export function Downloads({
                   )}
                 </div>
                 <div className="actions">
-                  {job.source.site !== "nhentai" &&
-                    resumable.includes(job.state) && (
-                      <button
-                        disabled={!!busy}
-                        onClick={() => void act(job, "resume")}
-                      >
-                        {spin(`${job.id}:${"resume"}`)}
-                        {t("继续／重试", "Resume / retry")}
-                      </button>
-                    )}
+                  {resumable.includes(job.state) && (
+                    <button
+                      disabled={!!busy}
+                      onClick={() => void act(job, "resume")}
+                    >
+                      {spin(`${job.id}:${"resume"}`)}
+                      {t("继续／重试", "Resume / retry")}
+                    </button>
+                  )}
                   {!terminalStates.includes(job.state) &&
                     job.details.may_be_charged && (
                       <p className="notice">
@@ -959,18 +941,17 @@ export function Downloads({
                       {t("打开书籍", "Open book")}
                     </RouteLink>
                   )}
-                  {terminalStates.includes(job.state) &&
-                    job.source.site !== "nhentai" && (
-                      <button
-                        disabled={!!busy}
-                        onClick={() => void act(job, "redownload")}
-                      >
-                        {spin(`${job.id}:redownload`)}
-                        {job.state === "cancelled"
-                          ? t("重试", "Retry")
-                          : t("重新下载", "Download again")}
-                      </button>
-                    )}
+                  {terminalStates.includes(job.state) && (
+                    <button
+                      disabled={!!busy}
+                      onClick={() => void act(job, "redownload")}
+                    >
+                      {spin(`${job.id}:redownload`)}
+                      {job.state === "cancelled"
+                        ? t("重试", "Retry")
+                        : t("重新下载", "Download again")}
+                    </button>
+                  )}
                   {cancellable(job.state) && (
                     <button
                       className="icon-button close-button"
@@ -999,12 +980,12 @@ export function Downloads({
                 <p className="muted small" role="status">
                   {retryNotice(job, t)}
                   {job.error_code &&
-                    ` · ${sourceMessage(jobError(job), t, true)}`}
+                    ` · ${sourceMessage(job.error_code ?? "", t, true)}`}
                 </p>
               ) : (
                 job.error_code && (
                   <p className="error-text small">
-                    {sourceMessage(jobError(job), t)}
+                    {sourceMessage(job.error_code ?? "", t)}
                     {job.error_code === "download_invalid_archive" &&
                       job.details.import_error &&
                       ` (${job.details.import_error})`}

@@ -215,7 +215,7 @@ def test_snapshot_missing_source_key_reports_specific_error(files, tmp_path, dam
     assert not (tmp_path / "bad.zip").exists()
 
 
-def test_retired_credentials_are_removed_from_storage_and_backup(files, tmp_path):
+def test_unknown_credentials_are_removed_from_storage_and_backup(files, tmp_path):
     import sqlite3
     import zipfile
     from contextlib import closing
@@ -227,7 +227,7 @@ def test_retired_credentials_are_removed_from_storage_and_backup(files, tmp_path
     with files.library.transaction() as db:
         db.execute(
             "INSERT INTO source_config VALUES(1,'{}',?,1)",
-            (vault.encrypt({"nh_cookie": "retired", "eh_cookie": "kept"}),),
+            (vault.encrypt({"old_cookie": "dropped", "eh_cookie": "kept"}),),
         )
     archive = create_snapshot(files, tmp_path / "clean.zip")
     assert vault.load()[1] == {"eh_cookie": "kept"}

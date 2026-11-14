@@ -14,7 +14,7 @@ import pytest
 from fastapi.testclient import TestClient
 from helpers import CSRF, ORIGIN, PASSCODE, action, download_step, drive, login, ready
 from helpers import finish_download as finish
-from source_fixtures import ARCHIVE, EH, NH, archiver_posts, end_halts
+from source_fixtures import ARCHIVE, EH, archiver_posts, end_halts
 
 from mangacouch.auth import Auth
 from mangacouch.configuration import HTTPSettings
@@ -209,10 +209,13 @@ def test_download_size_does_not_inherit_small_upload_limit(queue, files):
     assert done["state"] == "done"
 
 
+OTHER = "https://example.org/g/200/"
+
+
 def test_batch_creation_validates_collapses_and_runs_like_single_jobs(queue):
     service, remote = queue
     items = service.create_many(
-        [EH, "not a url", NH, "https://example.com/g/1/", EH.rstrip("/"), NH + "?ref=x"]
+        [EH, "not a url", OTHER, "https://example.com/g/1/", EH.rstrip("/"), OTHER + "?ref=x"]
     )
     assert [item["error"] for item in items] == [
         None,
@@ -227,7 +230,7 @@ def test_batch_creation_validates_collapses_and_runs_like_single_jobs(queue):
         assert db.execute("SELECT count(*) FROM download_job").fetchone()[0] == 1
     download_step(service)
     assert service.get(items[0]["job"]["id"])["state"] == "needs_approval"
-    assert all(request.url.host != "nhentai.net" for request in remote.requests)
+    assert all(request.url.host != "example.org" for request in remote.requests)
 
 
 def test_readding_paused_download_preserves_resume_state(queue):

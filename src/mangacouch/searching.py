@@ -60,7 +60,7 @@ def _unquote(text: str) -> str:
 
 class SearchOptions(Model):
     language: Annotated[str, Field(max_length=128)] = ""
-    source: Literal["", "eh", "nhentai", "none"] = ""
+    source: Literal["", "eh", "none"] = ""
     work_type: Annotated[str, Field(max_length=128)] = ""
     reading: Literal["all", "unread", "completed", "in_progress"] = "all"
     review: Literal["all", "needs_review", "confirmed"] = "all"
@@ -303,11 +303,8 @@ def rule_conditions(query: str, options: SearchOptions) -> tuple[list[str], list
     if options.source:
         if options.source == "none":
             conditions.append("b.source_site_key=''")
-        elif options.source == "eh":
-            conditions.append("b.source_site_key IN " + EH_SITES_SQL)
         else:
-            conditions.append("b.source_site_key=?")
-            values.append(options.source)
+            conditions.append("b.source_site_key IN " + EH_SITES_SQL)
     if options.reading != "all":
         conditions.append("json_extract(p.state_json,'$.completed')=?")
         values.append(int(options.reading == "completed"))

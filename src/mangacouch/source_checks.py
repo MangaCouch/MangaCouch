@@ -14,7 +14,7 @@ from .errors import InvalidInput, NotFound
 from .files import RootUnavailable
 from .limits import ImportCancelled
 from .logs import short_id
-from .models import EH_SITES, EH_SITES_SQL, Source, SourceNotes, canonical_json
+from .models import EH_SITES_SQL, Source, SourceNotes, canonical_json
 from .online import FAILED_TASK
 from .source_http import SourceError, gallery_url
 from .source_limits import BACKGROUND_RESERVE, MAX_WAIT
@@ -56,30 +56,17 @@ def retry_delay(attempt: int) -> int:
     return min(RETRY_MAX, RETRY_BASE * 4 ** min(6, max(0, attempt - 1)))
 
 
-def retire_unsupported(db) -> None:
-    db.execute(
-        "UPDATE source_check SET state='ignored',error_code=NULL,reasons_json='[]',retry_at=0,"
-        "generation=generation+1 WHERE state!='ignored' AND book_id IN "
-        "(SELECT id FROM book WHERE source_site_key='nhentai')"
-    )
-    db.execute(
-        "DELETE FROM source_task WHERE source_url LIKE 'https://nhentai.net/%' "
-        "OR source_url LIKE 'https://www.nhentai.net/%'"
-    )
-
-
 def enqueue_check(db, book_id: str) -> None:
     source = db.execute(
         "SELECT json_extract(metadata_json,'$.source') FROM book WHERE id=?", (book_id,)
     ).fetchone()[0]
-    retired = source and json.loads(source)["site"] not in EH_SITES
     error = None if source else "source_absent"
     db.execute(
         "INSERT OR IGNORE INTO source_check(book_id,state,error_code,reasons_json,updated_at) "
         "VALUES(?,?,?,?,?)",
         (
             book_id,
-            "ignored" if retired else "needs_review" if error else "queued",
+            "needs_review" if error else "queued",
             error,
             canonical_json([error] if error else []),
             int(time.time()),
@@ -111,7 +98,6 @@ class SourceChecks:
         """Checks a restart interrupted run again; queued ones (also those waiting out a site's
         halt or a retry time) stay queued."""
         with self.library.transaction() as db:
-            retire_unsupported(db)
             result = db.execute(
                 "UPDATE source_check SET state='queued',generation=generation+1,error_code=NULL,"
                 "reasons_json='[]',retry_at=0 WHERE state='running'"
@@ -198,8 +184,6 @@ class SourceChecks:
                     )
                 if not source:
                     raise InvalidInput("Set an explicit source before retrying", code="source_absent")
-                if json.loads(source)["site"] not in EH_SITES:
-                    raise InvalidInput("This source is no longer supported", code="source_retired")
             db.execute(
                 "UPDATE source_check SET state=?,generation=generation+1,error_code=NULL,"
                 "reasons_json='[]',retry_at=0,updated_at=? WHERE book_id=?",
@@ -497,7 +481,7 @@ class SourceChecks:
                 identifiers,
             ):
                 source = Source.model_validate_json(value) if value else None
-                if source and source.site in EH_SITES:
+                if source:
                     sources.append(source)
         if sources:
             try:
@@ -531,18 +515,6 @@ class SourceChecks:
             book = self.library.get_book(identifier)
             if book.metadata.source is None:
                 raise SourceError("source_absent")
-            if book.metadata.source.site not in EH_SITES:
-                # Retired or unsupported sources are ignored, as upgrades and bulk actions do;
-                # a link pasted by hand settles on its own task (_settle_task).
-                self._settle_with_retry(
-                    lambda db: db.execute(
-                        "UPDATE source_check SET state='ignored',error_code=NULL,reasons_json='[]',"
-                        "retry_at=0,updated_at=? WHERE book_id=? AND generation=? AND state='running'",
-                        (int(time.time()), identifier, generation),
-                    ),
-                    stopping,
-                )
-                return
             settings = self.online.sources.http.settings
             self.online.refresh(
                 identifier,

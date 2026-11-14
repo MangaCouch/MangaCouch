@@ -16,7 +16,6 @@ from urllib.parse import quote
 from .errors import InvalidInput, NotFound, RevisionConflict
 from .metadata_import import MetadataImport
 from .models import (
-    EH_SITES,
     Content,
     Metadata,
     NativeSidecar,
@@ -103,13 +102,6 @@ def write_source_links(db: sqlite3.Connection, book_id: str, metadata: Metadata)
             book_id,
         ),
     )
-    if metadata.source and metadata.source.site not in EH_SITES:
-        # Online checks only serve E(x)Hentai: an older check's failure no longer applies.
-        db.execute(
-            "UPDATE source_check SET state='ignored',error_code=NULL,reasons_json='[]',retry_at=0,"
-            "generation=generation+1 WHERE book_id=? AND state!='ignored'",
-            (book_id,),
-        )
     db.execute("DELETE FROM book_newer WHERE book_id=?", (book_id,))
     db.executemany(
         "INSERT OR IGNORE INTO book_newer VALUES(?,?,?)",

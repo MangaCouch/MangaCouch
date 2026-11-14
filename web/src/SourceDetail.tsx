@@ -5,7 +5,7 @@ import { Pill } from "./Pills";
 import { ErrorNotice, toast } from "./feedback";
 import { ApiError, aborted, errorMessage, post, request } from "./api";
 import { dateTime } from "./format";
-import { siteLabel, sourceURL } from "./identifiers";
+import { SITE_LABEL, sourceURL } from "./identifiers";
 import { queuedMessage, sourceMessage } from "./sourceErrors";
 import { checkReason, SourceCheckStatus } from "./SourceCheckStatus";
 import { savedNotice } from "./ReviewDetails";
@@ -177,18 +177,10 @@ export function SourceComments({
   const locale = t("zh-CN", "en-US");
   const notes = data?.notes ?? [],
     comments = data?.comments ?? [];
-  const refreshable = notes.filter((note) => note.source.site !== "nhentai");
-  const groups = [
-    comments.filter((comment) => comment.source.site !== "nhentai"),
-    comments.filter((comment) => comment.source.site === "nhentai"),
-  ];
-  const mixed: SourceComment[] = [];
-  for (let i = 0; i < Math.max(...groups.map((group) => group.length)); i++)
-    for (const group of groups) {
-      const comment = group[i];
-      if (comment) mixed.push(comment);
-    }
-  const currentPage = Math.min(page, Math.max(1, Math.ceil(mixed.length / 20)));
+  const currentPage = Math.min(
+    page,
+    Math.max(1, Math.ceil(comments.length / 20)),
+  );
   useEffect(() => {
     if (data && page !== currentPage) setPage(currentPage);
   }, [data, page, currentPage]);
@@ -200,13 +192,13 @@ export function SourceComments({
         <button
           className="icon-button"
           aria-label={t("更新来源评论", "Update source comments")}
-          disabled={busy || !refreshable.length}
+          disabled={busy || !notes.length}
           onClick={async () => {
             setBusy(true);
             try {
               // Comments live outside the metadata: the book itself does not change.
               let queued: number | undefined;
-              for (const note of refreshable) {
+              for (const note of notes) {
                 const result = await post<SourceDiscussion>(
                   `/api/books/${encodeURIComponent(book.id)}/source-comments`,
                   { url: sourceURL(note.source) },
@@ -225,21 +217,12 @@ export function SourceComments({
           <RefreshCw size={17} className={busy ? "spinner" : ""} />
         </button>
       </header>
-      {!refreshable.length &&
-        notes.some((note) => note.source.site === "nhentai") && (
-          <p className="small muted">
-            {t(
-              "nH 评论仅保留离线副本，在线刷新已退役。",
-              "nH comments are kept as offline copies; online refresh has retired.",
-            )}
-          </p>
-        )}
       <ErrorNotice error={error} t={t} />
       {notes.map(
         ({ source, comments_failure: failure }) =>
           failure && (
             <p className="notice error" key={`failure:${sourceURL(source)}`}>
-              <Pill kind="source">{siteLabel(source.site)}</Pill>
+              <Pill kind="source">{SITE_LABEL}</Pill>
               {t(
                 `上次补取失败：${checkReason(failure.code, t)}`,
                 `The last background fetch failed: ${checkReason(failure.code, t)}`,
@@ -250,34 +233,36 @@ export function SourceComments({
       <div className="tags">
         {notes.map((note) => (
           <span className="tags" key={sourceURL(note.source)}>
-            <Pill kind="source">{siteLabel(note.source.site)}</Pill>
+            <Pill kind="source">{SITE_LABEL}</Pill>
             {note.fetched_at !== null && (
               <Pill>{dateTime(note.fetched_at, locale)}</Pill>
             )}
           </span>
         ))}
       </div>
-      {mixed.slice((currentPage - 1) * 20, currentPage * 20).map((comment) => (
-        <article key={`${sourceURL(comment.source)}:${comment.comment_id}`}>
-          <header>
-            <strong className="comment-author">{comment.author}</strong>
-            <Pill kind="source">{siteLabel(comment.source.site)}</Pill>
-            {comment.posted_at && (
-              <Pill>
-                {dateTime(comment.posted_at, locale, { dateStyle: "medium" })}
-              </Pill>
-            )}
-            {comment.score != null && <Pill>{comment.score}</Pill>}
-          </header>
-          <p>{comment.body}</p>
-        </article>
-      ))}
+      {comments
+        .slice((currentPage - 1) * 20, currentPage * 20)
+        .map((comment) => (
+          <article key={`${sourceURL(comment.source)}:${comment.comment_id}`}>
+            <header>
+              <strong className="comment-author">{comment.author}</strong>
+              <Pill kind="source">{SITE_LABEL}</Pill>
+              {comment.posted_at && (
+                <Pill>
+                  {dateTime(comment.posted_at, locale, { dateStyle: "medium" })}
+                </Pill>
+              )}
+              {comment.score != null && <Pill>{comment.score}</Pill>}
+            </header>
+            <p>{comment.body}</p>
+          </article>
+        ))}
       {!error && !comments.length && (
         <p className="muted">{t("暂无评论", "No comments")}</p>
       )}
       <Pagination
         page={currentPage}
-        total={mixed.length}
+        total={comments.length}
         size={20}
         change={setPage}
         t={t}

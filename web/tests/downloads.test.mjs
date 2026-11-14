@@ -74,7 +74,7 @@ test("several pasted links are submitted in one batch with per-line results", as
     [
       "https://e-hentai.org/g/1/abc/",
       "",
-      "https://nhentai.net/g/200/",
+      "https://example.org/g/200/",
       "not a link",
       "https://example.com/g/5/",
       "https://e-hentai.org/g/1/abc/",
@@ -95,14 +95,14 @@ test("several pasted links are submitted in one batch with per-line results", as
   );
   const text = x.text();
   assert.match(text, /https:\/\/e-hentai\.org\/g\/1\/abc\/Added/);
-  assert.match(text, /https:\/\/nhentai\.net\/g\/200\/Unsupported site/);
+  assert.match(text, /https:\/\/example\.org\/g\/200\/Unsupported site/);
   assert.match(text, /not a linkNot a recognized gallery link/);
   assert.match(text, /example\.com\/g\/5\/Unsupported site/);
   assert.equal((text.match(/Already queued/g) ?? []).length, 2);
   // Only the lines that need correcting stay in the box.
   assert.equal(
     attr(x.textarea(), "value"),
-    "https://nhentai.net/g/200/\nnot a link\nhttps://example.com/g/5/",
+    "https://example.org/g/200/\nnot a link\nhttps://example.com/g/5/",
   );
   assert.equal(x.fixture.downloads.length, 2);
   assert.equal(all(x.view.container, { className: "download-row" }).length, 2);
@@ -127,7 +127,6 @@ test("automatic retries and source cooldowns are explained in the queue and the 
     text,
     /E-Hentai \/ ExHentai rate-limited until .+; downloads and source checks resume automatically/,
   );
-  assert.doesNotMatch(text, /nHentai rate-limited/);
 });
 test("the task popover shows the same retry and cooldown lines", async (t) => {
   const later = Math.floor(Date.now() / 1000) + 600;
@@ -1076,33 +1075,12 @@ test("adding a cancelled gallery points to Retry under History", async (t) => {
 
 test("a pasted link of another site says which links to paste", async (t) => {
   const x = await setup(t);
-  await x.type("https://nhentai.net/g/200/");
+  await x.type("https://example.org/g/200/");
   await x.submit();
   assert.match(
     x.text(),
     /Unsupported site\. Paste an E-Hentai or ExHentai link\./,
   );
-  assert.doesNotMatch(x.text(), /Local books and metadata are kept/);
-});
-
-test("nHentai history rows explain the retired source, not which link to paste", async (t) => {
-  const x = await setup(t, (f) =>
-    f.downloads.push(
-      job("nh", {
-        input_url: "https://nhentai.net/g/200/",
-        source: { site: "nhentai", gallery_id: 200, gallery_token: null },
-        state: "cancelled",
-        error_code: "unsupported_source",
-      }),
-    ),
-  );
-  await x.click("History");
-  await x.tick(0);
-  assert.match(
-    x.text(),
-    /Online services for this source were retired\. Local books and metadata are kept\./,
-  );
-  assert.doesNotMatch(x.text(), /Paste an E-Hentai or ExHentai link/);
 });
 
 test("uncounted waits keep the retry time but drop the stalled attempt number", async (t) => {

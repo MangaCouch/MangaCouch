@@ -429,7 +429,7 @@ for (const [state, notice] of [
     assert.equal(all(view.container, { role: "alert" }).length, 0);
   });
 }
-test("source refresh sends exact revision without fetching stored nHentai sources", async (t) => {
+test("source refresh sends the exact revision", async (t) => {
   let received, updated;
   const book = {
     id: "book",
@@ -438,16 +438,7 @@ test("source refresh sends exact revision without fetching stored nHentai source
       source: { site: "ehentai", gallery_id: 10, gallery_token: "abc" },
     },
   };
-  const notes = [
-    {
-      source: { site: "nhentai", gallery_id: 77, gallery_token: null },
-      tags: [],
-      fetched_at: 1,
-      comments_sort: "source",
-      comments_pages: 1,
-      comments_complete: true,
-    },
-  ];
+  const notes = [];
   const view = await mount(
     t,
     SourceRefresh,

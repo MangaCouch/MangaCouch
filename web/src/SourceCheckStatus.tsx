@@ -115,7 +115,7 @@ export function SourceCheckStatus({
         </span>
       )}
       {!!error && <span role="alert">{errorMessage(error, t)}</span>}
-      {status?.retry && book.metadata.source?.site !== "nhentai" && (
+      {status?.retry && (
         <button type="button" disabled={busy} onClick={() => void retry()}>
           <RotateCw size={15} className={busy ? "spinner" : ""} />
           {t("重试", "Retry")}

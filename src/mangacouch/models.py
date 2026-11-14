@@ -35,7 +35,7 @@ FieldName = Literal[
 ]
 
 
-# Tag namespaces that a bare `namespace:value` search term filters on (E-Hentai/nHentai sets).
+# Tag namespaces that a bare `namespace:value` search term filters on (the E-Hentai set).
 TAG_NAMESPACES = frozenset(
     {
         "artist",
@@ -170,20 +170,14 @@ def site_group(site: str) -> tuple[str, ...]:
 
 
 class Source(Model):
-    site: Literal["ehentai", "exhentai", "nhentai"]
+    site: Literal["ehentai", "exhentai"]
     gallery_id: Annotated[int, Field(gt=0, le=2**63 - 1)]
-    gallery_token: Annotated[str, Field(pattern=r"^[a-zA-Z0-9]{1,64}$")] | None = None
+    gallery_token: Annotated[str, Field(pattern=r"^[a-zA-Z0-9]{1,64}$")]
 
     @field_validator("gallery_token")
     @classmethod
-    def normalize_token(cls, value: str | None) -> str | None:
-        return value.lower() if value else value
-
-    @model_validator(mode="after")
-    def check_token(self) -> Self:
-        if (self.site == "nhentai") != (self.gallery_token is None):
-            raise ValueError("EH requires a gallery token; nHentai has no gallery token")
-        return self
+    def normalize_token(cls, value: str) -> str:
+        return value.lower()
 
     @property
     def key(self) -> str:
@@ -191,8 +185,6 @@ class Source(Model):
 
     @property
     def url(self) -> str:
-        if self.site == "nhentai":
-            return f"https://nhentai.net/g/{self.gallery_id}/"
         host = "e-hentai.org" if self.site == "ehentai" else "exhentai.org"
         return f"https://{host}/g/{self.gallery_id}/{self.gallery_token}/"
 
