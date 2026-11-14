@@ -308,21 +308,24 @@ def live_stamp(path: Path) -> tuple[int, int, int, int]:
     return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns
 
 
-def file_stamp(path: Path) -> tuple[int, int]:
-    value = live_stamp(path)
-    return value[2], value[3]
+def file_stamp(path: Path) -> tuple[int, int, int, int, int]:
+    """Content cache identity, including replacements and writes that preserve mtime."""
+    value = path.lstat()
+    if not stat.S_ISREG(value.st_mode):
+        raise OSError("Expected a regular file, not a symbolic link or special file")
+    return value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns, value.st_ctime_ns
 
 
 def hash_file(path: Path, cancelled: Callable[[], bool] | None = None) -> str:
     cancelled = cancelled or thread_cancelled()
     check_cancel(cancelled)
-    before = live_stamp(path)
+    before = file_stamp(path)
     digest = hashlib.sha256()
     with path.open("rb") as stream:
         while chunk := stream.read(CHUNK_SIZE):
             check_cancel(cancelled)
             digest.update(chunk)
-    if live_stamp(path) != before:
+    if file_stamp(path) != before:
         raise ContentChanged("File changed while being read")
     return digest.hexdigest()
 

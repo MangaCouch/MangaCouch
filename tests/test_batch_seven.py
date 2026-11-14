@@ -43,7 +43,7 @@ def test_zip_undeclared_zip64_locator_is_rejected(tmp_path):
 def test_persisted_stamp_and_removal_fast_path(files, tmp_path, monkeypatch):
     book = files.import_file(make_zip(tmp_path / "sample.cbz")).book
     path = files.root.resolve(book.content.relative_path)
-    assert file_stamp(path) == live_stamp(path)[2:]
+    assert file_stamp(path) == (*live_stamp(path), path.stat().st_ctime_ns)
     service = Removals(files)
     preview = service.preview(book.id)
     receipt = service.remove(preview["id"], book.id, preview["token"], confirmed=True)
@@ -119,4 +119,4 @@ def test_tag_counts_follow_remove_restore(files, tmp_path):
     service.restore(receipt["id"])
     with files.library.connection() as db:
         assert tuple(db.execute("SELECT * FROM tag_count").fetchone()) == ("artist", "test", 1)
-        assert len(json.loads(db.execute("SELECT file_stamp FROM archive_manifest").fetchone()[0])) == 2
+        assert len(json.loads(db.execute("SELECT file_stamp FROM archive_manifest").fetchone()[0])) == 5

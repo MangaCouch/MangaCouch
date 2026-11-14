@@ -60,7 +60,7 @@ def open_archive(files: FileLibrary, book: Book) -> tuple[BinaryIO, str]:
         files.root.check()
         opened_stamp = _stamp(stream)
         if (
-            canonical_json(json.loads(opened_stamp)[2:]) != stamp
+            canonical_json(json.loads(stamp)[:4]) != opened_stamp
             or canonical_json(live_stamp(path)) != opened_stamp
             or canonical_json(file_stamp(path)) != stamp
         ):

@@ -7,6 +7,7 @@ import "./tokens.css";
 import "./style.css";
 import "./components.css";
 import "./management.css";
+import "./layout.css";
 
 forgetRetiredLibraryStorage();
 createRoot(document.getElementById("root")!).render(

@@ -13,7 +13,8 @@ from fastapi import APIRouter, Request
 from fastapi.encoders import jsonable_encoder
 
 from .configuration import effective_upload_limit
-from .services import Services, require_manager
+from .errors import LibraryBusy
+from .services import SLOT_TIMEOUT, Services, require_manager
 from .uploads import receive_upload
 
 LOGGER = logging.getLogger(__name__)
@@ -67,8 +68,15 @@ def scans_router(services: Services) -> APIRouter:
             )
         )
         try:
-            async with services.upload_slots:
+            try:
+                with anyio.fail_after(SLOT_TIMEOUT):
+                    await services.upload_slots.acquire()
+            except TimeoutError as error:
+                raise LibraryBusy() from error
+            try:
                 path = await receive_upload(request, directory, filename, maximum)
+            finally:
+                services.upload_slots.release()
 
             def finish() -> dict:
                 imported = files.import_file(path, original_filename=filename, consume=True)
@@ -100,7 +108,8 @@ def scans_router(services: Services) -> APIRouter:
 
             result = await services.bounded(finish, timeout=1800)
         finally:
-            await anyio.to_thread.run_sync(lambda: shutil.rmtree(directory, ignore_errors=True))
+            with anyio.CancelScope(shield=True):
+                await anyio.to_thread.run_sync(lambda: shutil.rmtree(directory, ignore_errors=True))
         services.downloads.wake.set()
         services.duplicates.poke()
         services.maintenance.wake()

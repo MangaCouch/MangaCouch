@@ -106,6 +106,21 @@ export function TaskQueue({
   };
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
+      {!!data?.downloads.needs_you && (
+        <RouteLink
+          className="icon-button attention-trigger"
+          aria-label={t(
+            `待处理的下载：${data.downloads.needs_you}`,
+            `Downloads waiting for you: ${data.downloads.needs_you}`,
+          )}
+          title={t("待处理的下载", "Downloads waiting for you")}
+          route={"downloads"}
+          navigate={go}
+        >
+          <CircleAlert size={18} />
+          <span className="attention-count">{data.downloads.needs_you}</span>
+        </RouteLink>
+      )}
       <Popover.Trigger
         className="icon-button head-action task-trigger"
         aria-label={t("任务队列", "Task queue")}
@@ -122,21 +137,6 @@ export function TaskQueue({
         <span className="head-label">{t("任务队列", "Task queue")}</span>
         {active > 0 && <span className="task-count">{active}</span>}
       </Popover.Trigger>
-      {!!data?.downloads.needs_you && (
-        <RouteLink
-          className="icon-button attention-trigger"
-          aria-label={t(
-            `待处理的下载：${data.downloads.needs_you}`,
-            `Downloads waiting for you: ${data.downloads.needs_you}`,
-          )}
-          title={t("待处理的下载", "Downloads waiting for you")}
-          route={"downloads"}
-          navigate={go}
-        >
-          <CircleAlert size={18} />
-          <span className="attention-count">{data.downloads.needs_you}</span>
-        </RouteLink>
-      )}
       <Popover.Portal>
         <Popover.Content
           className="task-popover glass"

@@ -18,7 +18,7 @@ The CLI processes one bounded batch per invocation; repeat `scan` to continue. T
 
 `import` and `index` add a single file from the command line: `import <file>` copies the file into the library and leaves the original alone; `index <file>` registers a file that already sits inside the books folder where it is, without copying or moving it.
 
-Web upload import work has a 30-minute cooperative deadline, with a short queue wait. Retrying a failed upload requires uploading its files again. Runtime configuration stores only limit overrides; legacy default limits follow current defaults while custom values remain. JPEG pages named `.jfif` or `.jpe` are accepted. Recognized image suffixes whose contents are unsupported (such as TIFF, BMP, AVIF or JPEG XL) fail import with the member name rather than silently disappearing.
+Web upload import work has a 30-minute cooperative deadline, with a 30-second limit when waiting for an upload slot. If both slots stay occupied, the server returns HTTP 503 `library_busy` with `Retry-After: 5`; retry by uploading the files again. Active transfers retain their 60-second idle timeout. Retrying a failed upload requires uploading its files again. Runtime configuration stores only limit overrides; legacy default limits follow current defaults while custom values remain. JPEG pages named `.jfif` or `.jpe` are accepted. Recognized image suffixes whose contents are unsupported (such as TIFF, BMP, AVIF or JPEG XL) fail import with the member name rather than silently disappearing.
 
 ### Books folder layout
 
@@ -35,6 +35,12 @@ books/
 - The `<archive name>.mangacouch.json` sidecar holds the library's metadata for the book and is updated after every edit (**Settings → Library management → Metadata sync** lists pending writes and conflicts). Its format is described by [`schema/native-sidecar.schema.json`](../schema/native-sidecar.schema.json).
 - The `<archive name>.eze.json` sidecar is only a snapshot of what the source last reported, written for E(x)Hentai books when the source is read. Editing a book in MangaCouch never changes it; edits go to the database and `.mangacouch.json` only.
 - Files and folders whose names start with `.mangacouch-` (the root marker, locks, staging and temporary files) belong to the server: do not move, edit or delete them.
+
+## Selection and collection drafts
+
+Selections stay across pages of the same search. Changing the search or filters, including through the logo or browser history, clears the selection. Tag chips and free text share the 1,024-character query limit.
+
+New collection and rule-editing dialogs keep unsaved drafts when you click outside. Closing or navigating away with changes asks you to keep editing or explicitly discard them. Saving successfully closes the dialog normally.
 
 ## Reading and duplicate detection
 
@@ -73,6 +79,8 @@ Archive downloads, thumbnails and other file servers spend no budget; each host 
 Batch confirmation freezes the selected titles, qualities, revisions and GP total in a confirmation dialog. Each result is reported separately; failed and ineligible items remain selected. Cancelled tasks stay in History until explicitly retried; Retry keeps the approved quality and price ceiling, while a task cancelled before approval still requires confirmation. Network/5xx failures and failed EH archive-link recovery share a budget of five failures per run; exhausted tasks wait for an explicit retry. Successful inspection or transfer and a new approval reset the budget; recovery quotes and repeated submissions do not reset it. A failed request with an unknown payment result keeps its recovery state. Rate limits, GP exhaustion, archive preparation and temporary local storage availability wait without spending that budget. GP waiters share one balance check with an increasing interval (up to 15 minutes); **Check balance now** probes immediately.
 
 ### After a restart
+
+Pausing or cancelling a download interrupts a stalled response-body socket without waiting for its 20-second read timeout. Pause keeps the partial archive and its resume validator; cancel removes the partial file. An interrupted paid response still keeps the possible-charge marker and follows the existing recovery rules. Connection setup and waiting for response headers retain their existing timeouts.
 
 Downloads continue by themselves after the server restarts, including the restart after saving the desktop launcher's settings: queued downloads stay queued, and a download that was being inspected, transferred or imported is queued again at the same step, a transfer resuming from the bytes already received. An approved paid request whose outcome is unknown automatically reads the archive page, reuses a prepared link if available, or submits again at no more than the approved price. Reading the price does not pay. A higher price requires new approval and shows that the previous request may already have been charged. Queued source checks continue as well.
 

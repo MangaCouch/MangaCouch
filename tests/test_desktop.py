@@ -874,7 +874,7 @@ import sys,time
 from mangacouch import database, migrate, schema
 from mangacouch.__main__ import main
 
-migrate.SCHEMA_VERSION = database.SCHEMA_VERSION = schema.SCHEMA_VERSION = 2
+migrate.SCHEMA_VERSION = database.SCHEMA_VERSION = schema.SCHEMA_VERSION = 3
 
 def slow(context):
     context.db.execute("CREATE TABLE cancellation_probe(value)")
@@ -882,7 +882,7 @@ def slow(context):
     while True:
         context.checkpoint()
         time.sleep(.01)
-migrate.STEPS[1] = slow
+migrate.STEPS[2] = slow
 sys.argv = ["mangacouch", *sys.argv[1:]]
 raise SystemExit(main())
 """
@@ -931,7 +931,7 @@ raise SystemExit(main())
         assert process.stdout
         process.stdout.close()
     with closing(sqlite3.connect(database)) as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 1
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 2
         assert not db.execute("SELECT 1 FROM sqlite_master WHERE name='cancellation_probe'").fetchall()
 
 

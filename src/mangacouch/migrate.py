@@ -11,6 +11,7 @@ are appended to STEPS under the version they upgrade from, raising schema.SCHEMA
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 import uuid
@@ -141,4 +142,26 @@ def _upgrade(
             db.execute("PRAGMA foreign_keys=ON")
 
 
-STEPS: dict[int, Step] = {}
+def _content_identity(context: Upgrade) -> None:
+    # Size/mtime receipts cannot establish identity. Reverify lazily against SHA-256;
+    # never assign a new stamp to content that this upgrade has not read.
+    db = context.db
+    db.execute("UPDATE archive_manifest SET file_stamp='null'")
+    db.execute("DELETE FROM import_receipt")
+    for row in db.execute("SELECT id,receipt_json,rows_json FROM removal").fetchall():
+        context.checkpoint()
+        receipt, rows = json.loads(row["receipt_json"]), json.loads(row["rows_json"])
+        for item in receipt["items"]:
+            item["file_stamp"] = None
+        for captured in rows.values():
+            for table, records in captured["tables"]:
+                if table == "archive_manifest":
+                    for manifest in records:
+                        manifest["file_stamp"] = "null"
+        db.execute(
+            "UPDATE removal SET receipt_json=?,rows_json=? WHERE id=?",
+            (json.dumps(receipt), json.dumps(rows), row["id"]),
+        )
+
+
+STEPS: dict[int, Step] = {1: _content_identity}

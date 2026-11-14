@@ -16,7 +16,7 @@ A self-hosted comic library for one owner: import CBZ/ZIP and PDF files, read th
 - **Downloads** — queue E(x)Hentai galleries from the web app or the Chrome extension, choose download quality, and approve paid archives before they are bought. E-Hentai requests stay within a model of the site's usage limit and pause by themselves after a ban or rate limit.
 - **External readers** — OPDS 1.2 and a Komga API subset, with scoped API keys.
 - **Safe by default** — passcode login, crash-safe imports, removed books restorable for seven days (choosing **Delete files** deletes their files at once) and one-click backups.
-- Chinese and English interface, light and dark themes, phone-friendly layout.
+- Chinese and English interface, light and dark themes, responsive library grid and protection for unsaved collection drafts.
 
 ## Screenshots
 

@@ -17,7 +17,7 @@ from .editions import Editions
 from .errors import InvalidInput, NotFound
 from .eze import eze_path
 from .eze_cache import EzeCache
-from .files import ContentChanged, RootUnavailable, file_stamp, sync_directory
+from .files import ContentChanged, RootUnavailable, file_stamp, hash_file, sync_directory
 from .ingest import FileLibrary, error_reason
 from .logs import short_id
 from .models import canonical_json
@@ -300,7 +300,13 @@ class Scanner:
         with self.library.connection() as db:
             old = db.execute("SELECT * FROM import_receipt WHERE source_path=?", (item["path"],)).fetchone()
         state, book_id, warnings = "unchanged", "", []
-        if old and old["stamp_json"] == receipt_stamp and self._available(old["book_id"]):
+        if (
+            old
+            and old["stamp_json"] == receipt_stamp
+            and self._available(old["book_id"])
+            and hash_file(path, lambda: self._stopped(identifier))
+            == self.library.get_book(old["book_id"]).content.sha256
+        ):
             book_id = old["book_id"]
             if self._keep_source(identifier):
                 with self.library.transaction() as db:

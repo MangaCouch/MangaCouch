@@ -11,7 +11,7 @@ import threading
 import time
 from collections import OrderedDict, deque
 from collections.abc import Callable
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
@@ -273,8 +273,9 @@ class NoResponseCookies(DefaultCookiePolicy):
 
 
 class DeadlineStream(httpx.SyncByteStream):
-    def __init__(self, stream: httpx.SyncByteStream, deadline: float, cancelled):
+    def __init__(self, stream: httpx.SyncByteStream, deadline: float, cancelled, release: Callable[[], None]):
         self.stream, self.deadline, self.cancelled = stream, deadline, cancelled
+        self.release = release
 
     def __iter__(self):
         for chunk in self.stream:
@@ -283,8 +284,14 @@ class DeadlineStream(httpx.SyncByteStream):
             if time.monotonic() >= self.deadline:
                 raise SourceError("source_network", 30)
             yield chunk
+        # A shutdown looks like ordinary EOF for close-delimited HTTP bodies.
+        # It must not turn an interrupted, partial archive into a completed transfer.
+        if self.cancelled and self.cancelled():
+            raise InterruptedError("Cancelled")
 
     def close(self) -> None:
+        # Stop owning the socket before HTTPX can return its connection to the pool.
+        self.release()
         self.stream.close()
 
 
@@ -328,7 +335,12 @@ class SourceHTTP:
         self.transport, self.clock = transport, clock
         self.blocked: str | None = "source_restore_paused" if settings.online_paused else None
         """An error code every request fails with: source_key_lost until the credentials are reset."""
+        self.generation = 0
         self.lock = threading.Lock()
+        self.send_boundary = threading.Condition(self.lock)
+        self.sending = 0
+        self.interrupt_lock = threading.Lock()
+        self.active_streams: dict[str, set[socket.socket]] = {}
         # Serialize halt changes with configuration changes. Persistence re-reads the latest
         # halt inside its database transaction so concurrent replies cannot write older state.
         self.configuration_lock = threading.RLock()
@@ -393,7 +405,12 @@ class SourceHTTP:
 
     def apply(self, settings: SourceSettings, secrets: dict, client: httpx.Client | None = None) -> None:
         """Use new settings for later requests; `client` replaces the current one (proxy change)."""
-        with self.configuration_lock, self.lock:
+        with self.configuration_lock, self.send_boundary:
+            # Requests may start concurrently, but an update waits until every start
+            # already claimed has reached its response headers (or failed).
+            while self.sending:
+                self.send_boundary.wait()
+            self.generation += 1
             self.settings, self.secrets = settings, secrets
             if settings.online_paused:
                 self.blocked = "source_restore_paused"
@@ -436,11 +453,66 @@ class SourceHTTP:
             client.close()
 
     def close(self):
+        self.interrupt()
         # Halts save the budgets at once; only requests admitted since the last save are owed.
         if self.unsaved or self.halt_dirty:
             self._save(force=True)
         with self.lock:
             self._retire(self.client)
+
+    @contextmanager
+    def interruptible(self, identifier: str):
+        """Associate this worker's response bodies with one cancellable download."""
+        previous = getattr(self.local, "operation", None)
+        self.local.operation = identifier
+        try:
+            yield
+        finally:
+            self.local.operation = previous
+
+    def interrupt(self, identifier: str | None = None) -> None:
+        """Wake blocked reads for a stopped job; the owning worker closes its response.
+
+        Never close a shared client or keep a socket after its response is closed: other
+        jobs may use the same connection pool. HTTP/2 multiplexing is not enabled.
+        """
+        with self.interrupt_lock:
+            groups = (
+                self.active_streams.values()
+                if identifier is None
+                else [self.active_streams.get(identifier, ())]
+            )
+            for sockets in groups:
+                for connection in sockets:
+                    # The peer/reader may already have closed the connection. Use the
+                    # socket primitive without mutating SSLSocket's TLS state in this
+                    # thread; the blocked reader owns TLS and response cleanup.
+                    with suppress(OSError):
+                        socket.socket.shutdown(connection, socket.SHUT_RDWR)
+
+    def _track_response(self, response: httpx.Response) -> Callable[[], None]:
+        identifier = getattr(self.local, "operation", None)
+        if identifier is None:
+            return lambda: None
+        network = response.extensions.get("network_stream")
+        connection = network.get_extra_info("socket") if network is not None else None
+        if not isinstance(connection, socket.socket):
+            return lambda: None
+        with self.interrupt_lock:
+            self.active_streams.setdefault(identifier, set()).add(connection)
+        registered = True
+
+        def release():
+            nonlocal registered
+            with self.interrupt_lock:
+                if registered:
+                    registered = False
+                    sockets = self.active_streams[identifier]
+                    sockets.remove(connection)
+                    if not sockets:
+                        del self.active_streams[identifier]
+
+        return release
 
     def cooldowns(self) -> dict[str, int]:
         """Active halts per site as epoch seconds; every site of a halted group is listed."""
@@ -773,10 +845,19 @@ class SourceHTTP:
             trial = getattr(self.local, "trial", None)
             client = trial[1] if trial and trial[1] is not None else self.client
             secrets, settings = self.secrets, self.settings
+            generation = self.generation
             self.readers[client] = self.readers.get(client, 0) + 1
         try:
             with self._stream(
-                client, secrets, settings, method, url, cancelled=cancelled, headers=headers, **kwargs
+                client,
+                secrets,
+                settings,
+                generation,
+                method,
+                url,
+                cancelled=cancelled,
+                headers=headers,
+                **kwargs,
             ) as response:
                 yield response
         finally:
@@ -794,6 +875,7 @@ class SourceHTTP:
         client,
         secrets,
         settings,
+        generation,
         method,
         url,
         *,
@@ -804,6 +886,15 @@ class SourceHTTP:
     ):
         sent = False
         deadline = time.monotonic() + total_timeout
+
+        def check_request():
+            with self.lock:
+                if self.blocked:
+                    raise SourceError(self.blocked)
+                if self.generation != generation:
+                    raise NotSent("Source configuration changed before request send")
+            return bool(cancelled and cancelled())
+
         try:
             for _ in range(6):
                 host = (urlsplit(url).hostname or "").rstrip(".").lower()
@@ -830,21 +921,42 @@ class SourceHTTP:
                         for address in checked_addresses
                     ):
                         raise SourceError("source_private_address")
-                release = self._admit(url, cancelled)
+                release = self._admit(url, check_request)
                 try:
                     started = time.monotonic()
                     request_headers = self._headers(url, secrets, settings.user_agent, headers)
-                    sent = True
-                    with client.stream(
-                        method,
-                        url,
-                        headers=request_headers,
-                        **kwargs,
-                    ) as response:
+                    with ExitStack() as responses:
+                        # Reserve a send while configuration changes are excluded, then
+                        # release that lock so parallel requests can reach the transport.
+                        # apply() waits for these starts before publishing/returning a reset.
+                        with self.configuration_lock:
+                            if check_request():
+                                raise NotSent("Cancelled before request send")
+                            with self.send_boundary:
+                                self.sending += 1
+                        try:
+                            sent = True
+                            response = responses.enter_context(
+                                client.stream(
+                                    method,
+                                    url,
+                                    headers=request_headers,
+                                    **kwargs,
+                                )
+                            )
+                        finally:
+                            with self.send_boundary:
+                                self.sending -= 1
+                                self.send_boundary.notify_all()
                         if time.monotonic() >= deadline:
                             raise SourceError("source_network", 30)
                         assert isinstance(response.stream, httpx.SyncByteStream)
-                        response.stream = DeadlineStream(response.stream, deadline, cancelled)
+                        untrack = self._track_response(response)
+                        responses.callback(untrack)
+                        response.stream = DeadlineStream(response.stream, deadline, cancelled, untrack)
+                        # An action just before registration found no socket to interrupt.
+                        if cancelled and cancelled():
+                            raise InterruptedError("Cancelled")
                         LOGGER.debug(
                             "%s %s -> %d (%.2f s)",
                             method,
@@ -881,11 +993,15 @@ class SourceHTTP:
                             if source_site(url):
                                 seconds = self._halt(url, "http_429", seconds)
                             raise SourceError("source_rate_limited", seconds)
+                        # We request identity. Reject unexpected encodings before httpx can
+                        # inflate an unbounded chunk, on both success and error responses.
+                        if response.headers.get("content-encoding", "identity").strip().lower() != "identity":
+                            raise SourceError("source_protocol")
                         status = response.status_code
                         prefix = bytearray()
                         if status >= 400:
                             for chunk in response.iter_bytes():
-                                prefix.extend(chunk)
+                                prefix.extend(chunk[: 65536 - len(prefix)])
                                 if len(prefix) >= 65536:
                                     break
                             self.check_ban(url, bytes(prefix), error_response=True)
@@ -915,6 +1031,8 @@ class SourceHTTP:
                 error.unsent = True
             raise
         except (httpx.HTTPError, socksio.ProtocolError) as error:
+            if cancelled and cancelled():
+                raise InterruptedError("Cancelled") from None
             LOGGER.info("%s %s failed: %s", method, log_url(url), type(error).__name__)
             unsent = isinstance(
                 error, httpx.ConnectError | httpx.ConnectTimeout | httpx.ProxyError | socksio.ProtocolError

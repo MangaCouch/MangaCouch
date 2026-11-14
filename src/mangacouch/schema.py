@@ -1,7 +1,7 @@
 """Complete SQLite schema for a MangaCouch library, grouped by domain."""
 
 APPLICATION_ID = 0x4D434C31  # MCL1: the library format introduced in 1.0.0.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 SCHEMA = """
 -- Books and content -------------------------------------------------------
 CREATE TABLE book (

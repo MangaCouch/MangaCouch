@@ -133,6 +133,8 @@ Stopping gives open requests up to 15 seconds and background work up to 60 more;
 
 Version 1.0.0 starts a new library format at schema 1. Pre-1.0 databases and snapshots are refused, even if their schema number is also 1. Existing installations need a separate conversion of a backed-up copy before switching to 1.0.0; changing the version number alone is not a conversion. Keep the original state and its matching older application for rollback.
 
+Schema 2 strengthens cached file identity with device, inode and change time. Opening a schema-1 library automatically creates a pre-upgrade backup and invalidates old import and archive stamps; content is checked again against SHA-256 as needed. Pending removals retain their receipts and reverify the files before deletion or restore.
+
 Take a backup first (**Settings → Maintenance & recovery → Backup & restore**, or `mangacouch --db <database> snapshot <output>`; see [library.md](library.md#backup-and-restore)). Then install the new version — pull the image, or replace the executable or wheel — and start it against the same state and books directories.
 
 For supported schema upgrades within the 1.0 format family, when `snapshot` encounters an older schema, it first writes the original database (including committed WAL changes) to `<output>.pre-upgrade.sqlite`, then upgrades and builds the snapshot. Keep that file for rollback.

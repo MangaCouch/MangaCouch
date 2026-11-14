@@ -73,6 +73,8 @@ export function Collections({
   const action = useAction();
   const busy = action.busy;
   const [editingRule, setEditingRule] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [formBase, setFormBase] = useState("");
   const [searchAfter, setSearchAfter] = useState<string | null>(null);
   const [creating, setCreating] = useState(false),
     [deleting, setDeleting] = useState(false),
@@ -90,6 +92,18 @@ export function Collections({
   const [browse, setBrowse] = useState(initialBrowse),
     [query, setQuery] = useState(""),
     [results, setResults] = useState<Book[]>([]);
+  const formValue = JSON.stringify({ name, kind, browse });
+  const dirty = creating && formValue !== formBase;
+  const closeForm = (discard = false) => {
+    if (busy) return;
+    if (dirty && !discard) {
+      setConfirmDiscard(true);
+      return;
+    }
+    setConfirmDiscard(false);
+    setCreating(false);
+    setEditingRule(false);
+  };
   // Escape ends renaming; the blur that follows must not save the abandoned name.
   useEffect(() => {
     if (collection) setKept(collection.items.length || ITEM_PAGE);
@@ -161,11 +175,22 @@ export function Collections({
     return () => controller.abort();
   }, [load]);
   useEffect(() => {
-    guard.current = async () => !busy;
+    guard.current = async () => {
+      if (dirty) setConfirmDiscard(true);
+      return !busy && !dirty;
+    };
+    const warn = (event: BeforeUnloadEvent) => {
+      if (dirty || busy) {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", warn);
     return () => {
       guard.current = null;
+      window.removeEventListener("beforeunload", warn);
     };
-  }, [busy, guard]);
+  }, [busy, dirty, guard]);
   const searchSerial = useRef(0);
   const act = action.run;
   /**
@@ -302,6 +327,16 @@ export function Collections({
               className="primary"
               onClick={() => {
                 setName("");
+                setKind("static");
+                setBrowse(initialBrowse());
+                setFormBase(
+                  JSON.stringify({
+                    name: "",
+                    kind: "static",
+                    browse: initialBrowse(),
+                  }),
+                );
+                setConfirmDiscard(false);
                 action.setError(null);
                 setCreating(true);
               }}
@@ -487,7 +522,7 @@ export function Collections({
                   <button
                     onClick={() => {
                       const options = collection.rule?.options ?? {};
-                      setBrowse({
+                      const nextBrowse = {
                         ...initialBrowse(),
                         query: collection.rule?.query ?? "",
                         category: String(options.work_type ?? ""),
@@ -499,7 +534,16 @@ export function Collections({
                         sourceRating: String(
                           options.source_rating_min ?? "all",
                         ),
-                      });
+                      };
+                      setBrowse(nextBrowse);
+                      setFormBase(
+                        JSON.stringify({
+                          name,
+                          kind: "dynamic",
+                          browse: nextBrowse,
+                        }),
+                      );
+                      setConfirmDiscard(false);
                       setKind("dynamic");
                       setEditingRule(true);
                       setCreating(true);
@@ -782,12 +826,25 @@ export function Collections({
                 : t("新建合集", "New collection")
             }
             closeLabel={t("关闭", "Close")}
-            close={() => {
-              setCreating(false);
-              setEditingRule(false);
-            }}
+            close={() => closeForm()}
+            dismissOutside={false}
             busy={busy}
           >
+            {confirmDiscard && (
+              <div role="alert" className="notice">
+                {t("放弃未保存的修改？", "Discard unsaved changes?")}{" "}
+                <button type="button" onClick={() => setConfirmDiscard(false)}>
+                  {t("继续编辑", "Keep editing")}
+                </button>{" "}
+                <button
+                  type="button"
+                  className="danger"
+                  onClick={() => closeForm(true)}
+                >
+                  {t("放弃修改", "Discard changes")}
+                </button>
+              </div>
+            )}
             <form
               className="modal-form"
               onSubmit={(event) => {
@@ -873,10 +930,7 @@ export function Collections({
                 <button
                   type="button"
                   disabled={busy}
-                  onClick={() => {
-                    setCreating(false);
-                    setEditingRule(false);
-                  }}
+                  onClick={() => closeForm()}
                 >
                   {t("取消", "Cancel")}
                 </button>

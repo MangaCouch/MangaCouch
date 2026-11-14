@@ -140,6 +140,8 @@ export function SearchBox({
       .trim();
   function emit(tags: Suggestion[], text: string, immediate = false) {
     const next = query(tags, text);
+    clearTimeout(timer.current);
+    if (next.length > 1024) return;
     emitted.current = next;
     callbacks.current.change?.(next);
     clearTimeout(timer.current);
@@ -152,6 +154,7 @@ export function SearchBox({
   }
   useEffect(() => {
     if (value !== emitted.current) {
+      clearTimeout(timer.current);
       setChips([]);
       setDraft(value);
       setCaret(value.length);
@@ -265,7 +268,10 @@ export function SearchBox({
               : t("搜索标题、标签、文件名…", "Search titles, tags, filenames…")
           }
           autoComplete="off"
-          maxLength={1024}
+          maxLength={Math.max(
+            0,
+            1024 - query(chips, "").length - (chips.length ? 1 : 0),
+          )}
           value={draft}
           onClick={() => {
             setCaret(input.current?.selectionStart ?? draft.length);
@@ -285,10 +291,11 @@ export function SearchBox({
             emit(chips, event.currentTarget.value);
           }}
           onChange={(event) => {
-            setDraft(event.target.value);
+            const text = event.target.value.slice(0, event.target.maxLength);
+            setDraft(text);
             setCaret(event.target.selectionStart ?? event.target.value.length);
             setOpen(true);
-            emit(chips, event.target.value);
+            emit(chips, text);
           }}
           onKeyDown={(event) => {
             if (

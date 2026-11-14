@@ -339,6 +339,8 @@ class Downloads:
                 for identifier in working:
                     self.stop_requests.setdefault(identifier, "pausing")
                 self.interrupted.update(working)
+            for identifier in working:
+                self.http.interrupt(identifier)
             self.vault.discard_credentials(working)
             settings, secrets, revision = self.vault.load()
             self.http.apply(settings, secrets, self.http.build_client(secrets) if proxy else None)
@@ -712,6 +714,7 @@ class Downloads:
             if state in {"cancelling", "pausing"}:
                 self.stop_requests[identifier] = state
                 self.interrupted.add(identifier)
+                self.http.interrupt(identifier)
             else:
                 self.interrupted.discard(identifier)
             LOGGER.info("Download %s: %s requested; now %s", short_id(identifier), action, state)
@@ -1716,13 +1719,14 @@ class Downloads:
                 LOGGER.debug("Download %s: %s phase", short_id(identifier), job["details"]["phase"])
                 if self._cancelled(identifier):
                     raise InterruptedError
-                {
-                    "inspect": self._inspect,
-                    "submit": self._submit,
-                    "transfer": self._transfer,
-                    "import": self._import,
-                    "recover": self._recover,
-                }[job["details"]["phase"]](job)
+                with self.http.interruptible(identifier):
+                    {
+                        "inspect": self._inspect,
+                        "submit": self._submit,
+                        "transfer": self._transfer,
+                        "import": self._import,
+                        "recover": self._recover,
+                    }[job["details"]["phase"]](job)
                 if self.get(identifier, private=True)["state"] != "done" and self._cancelled(identifier):
                     raise InterruptedError
             except (InterruptedError, ImportCancelled):
@@ -1884,6 +1888,7 @@ class Downloads:
         """Stop the workers, then release the HTTP client and the worker lock even if one of them
         does not stop in time (TimeoutError)."""
         self.stopping.set()
+        self.http.interrupt()
         self.http.save_wake.set()
         self.wake.set()
         started = time.monotonic()

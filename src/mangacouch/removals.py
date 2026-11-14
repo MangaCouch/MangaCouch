@@ -250,7 +250,7 @@ class Removals:
             "delete_blocked": delete_blocked,
         }
 
-    def _observe(self, relative_path: str) -> tuple[str, tuple[int, int] | None]:
+    def _observe(self, relative_path: str) -> tuple[str, tuple[int, int, int, int, int] | None]:
         try:
             return "present", file_stamp(self.files.root.resolve(relative_path))
         except FileNotFoundError:
@@ -258,7 +258,7 @@ class Removals:
         except OSError:
             return "unreadable", None
 
-    def _verified(self, item: dict) -> tuple[bool, tuple[int, int] | None]:
+    def _verified(self, item: dict) -> tuple[bool, tuple[int, int, int, int, int] | None]:
         path = self.files.root.resolve(item["relative_path"])
         try:
             stamp = file_stamp(path)
@@ -775,8 +775,9 @@ class Removals:
 
     def cancel_deletion(self, identifier: str) -> dict:
         identifier = self._identifier(identifier)
-        self._stop_deletion(identifier, "cancelled")
-        return self.get(identifier)
+        with self.files.root.mutation():
+            self._stop_deletion(identifier, "cancelled")
+            return self.get(identifier)
 
     def _stop_deletion(self, identifier: str, reason: str) -> None:
         with self.library.transaction(durable=True) as db:

@@ -193,7 +193,29 @@ export function Library({
   const total = counted?.params === params ? counted.total : null;
   const stale = !!listError && current;
   // The selection carries across pages; a new search or filter starts over.
-  const [selection, setSelection] = useState(noSelection);
+  const [selected, setSelected] = useState(() => ({
+    key: params,
+    value: noSelection(),
+  }));
+  const selection = selected.key === params ? selected.value : noSelection();
+  // Reset during render as well as hiding stale selections: even A -> B -> A must
+  // not revive a selection, and no action may observe it under a different query.
+  if (selected.key !== params)
+    setSelected({ key: params, value: noSelection() });
+  const setSelection = (
+    next:
+      | ReturnType<typeof noSelection>
+      | ((
+          old: ReturnType<typeof noSelection>,
+        ) => ReturnType<typeof noSelection>),
+  ) =>
+    setSelected((old) => ({
+      key: params,
+      value:
+        typeof next === "function"
+          ? next(old.key === params ? old.value : noSelection())
+          : next,
+    }));
   function changeBrowse(next: Browse) {
     setPage(1);
     scroll.current = null;
