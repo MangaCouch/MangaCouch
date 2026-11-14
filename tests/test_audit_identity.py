@@ -51,6 +51,38 @@ def test_same_size_mtime_replacement_cannot_be_deleted(files, tmp_path, inplace)
     assert path.exists()
 
 
+def test_file_stamp_matches_open_file_and_is_stable_across_reads(tmp_path):
+    path = tmp_path / "readonly.bin"
+    path.write_bytes(b"unchanged")
+    path.chmod(0o444)
+    try:
+        before = file_stamp(path)
+        with path.open("rb") as stream:
+            value = os.fstat(stream.fileno())
+            assert before[:4] == (value.st_dev, value.st_ino, value.st_size, value.st_mtime_ns)
+            assert stream.read() == b"unchanged"
+        assert file_stamp(path) == before
+    finally:
+        path.chmod(0o666)
+
+
+def test_file_stamp_rejects_missing_files_and_directories(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        file_stamp(tmp_path / "missing")
+    with pytest.raises(OSError, match="Expected a regular file"):
+        file_stamp(tmp_path)
+
+
+def test_file_stamp_does_not_follow_symlinks(tmp_path):
+    target = tmp_path / "target"
+    target.write_bytes(b"keep")
+    link = tmp_path / "link"
+    link.symlink_to(target)
+    with pytest.raises(OSError, match="Expected a regular file"):
+        file_stamp(link)
+    assert target.read_bytes() == b"keep"
+
+
 def test_new_inbox_content_with_old_size_mtime_is_imported(files, tmp_path):
     incoming = files.root.path / "import"
     incoming.mkdir()

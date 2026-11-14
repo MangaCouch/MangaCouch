@@ -310,6 +310,10 @@ def live_stamp(path: Path) -> tuple[int, int, int, int]:
 
 def file_stamp(path: Path) -> tuple[int, int, int, int, int]:
     """Content cache identity, including replacements and writes that preserve mtime."""
+    if os.name == "nt":
+        from .windows_files import file_stamp as windows_file_stamp
+
+        return windows_file_stamp(path)
     value = path.lstat()
     if not stat.S_ISREG(value.st_mode):
         raise OSError("Expected a regular file, not a symbolic link or special file")

@@ -11,7 +11,7 @@ import threading
 import time
 from collections import OrderedDict, deque
 from collections.abc import Callable
-from contextlib import ExitStack, contextmanager, suppress
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
@@ -19,6 +19,7 @@ from http.cookiejar import CookieJar, DefaultCookiePolicy
 from typing import Literal
 from urllib.parse import urljoin, urlsplit
 
+import httpcore
 import httpx
 import socksio
 
@@ -340,7 +341,7 @@ class SourceHTTP:
         self.send_boundary = threading.Condition(self.lock)
         self.sending = 0
         self.interrupt_lock = threading.Lock()
-        self.active_streams: dict[str, set[socket.socket]] = {}
+        self.active_streams: dict[str, set[threading.Event]] = {}
         # Serialize halt changes with configuration changes. Persistence re-reads the latest
         # halt inside its database transaction so concurrent replies cannot write older state.
         self.configuration_lock = threading.RLock()
@@ -471,7 +472,7 @@ class SourceHTTP:
             self.local.operation = previous
 
     def interrupt(self, identifier: str | None = None) -> None:
-        """Wake blocked reads for a stopped job; the owning worker closes its response.
+        """Signal a stopped job; the owning worker closes its response after a bounded read.
 
         Never close a shared client or keep a socket after its response is closed: other
         jobs may use the same connection pool. HTTP/2 multiplexing is not enabled.
@@ -482,24 +483,38 @@ class SourceHTTP:
                 if identifier is None
                 else [self.active_streams.get(identifier, ())]
             )
-            for sockets in groups:
-                for connection in sockets:
-                    # The peer/reader may already have closed the connection. Use the
-                    # socket primitive without mutating SSLSocket's TLS state in this
-                    # thread; the blocked reader owns TLS and response cleanup.
-                    with suppress(OSError):
-                        socket.socket.shutdown(connection, socket.SHUT_RDWR)
+            for events in groups:
+                for stopped in events:
+                    stopped.set()
 
     def _track_response(self, response: httpx.Response) -> Callable[[], None]:
         identifier = getattr(self.local, "operation", None)
         if identifier is None:
             return lambda: None
         network = response.extensions.get("network_stream")
-        connection = network.get_extra_info("socket") if network is not None else None
-        if not isinstance(connection, socket.socket):
+        if not isinstance(network, httpcore.NetworkStream):
             return lambda: None
+        stopped = threading.Event()
+        read = network.read
+
+        def interruptible_read(max_bytes: int, timeout: float | None = None) -> bytes:
+            # Winsock shutdown need not wake the select inside a timed recv. Poll at
+            # the network-read boundary, below HTTP parsing, so a short timeout does
+            # not discard the response generator or any partially received TLS data.
+            deadline = None if timeout is None else time.monotonic() + timeout
+            while True:
+                if stopped.is_set():
+                    raise InterruptedError("Cancelled")
+                remaining = None if deadline is None else max(0.0, deadline - time.monotonic())
+                try:
+                    return read(max_bytes, timeout=0.1 if remaining is None else min(0.1, remaining))
+                except httpcore.ReadTimeout:
+                    if deadline is not None and time.monotonic() >= deadline:
+                        raise
+
+        network.read = interruptible_read
         with self.interrupt_lock:
-            self.active_streams.setdefault(identifier, set()).add(connection)
+            self.active_streams.setdefault(identifier, set()).add(stopped)
         registered = True
 
         def release():
@@ -507,9 +522,11 @@ class SourceHTTP:
             with self.interrupt_lock:
                 if registered:
                     registered = False
-                    sockets = self.active_streams[identifier]
-                    sockets.remove(connection)
-                    if not sockets:
+                    # Restore before HTTPX can lend the connection to another job.
+                    network.read = read
+                    events = self.active_streams[identifier]
+                    events.remove(stopped)
+                    if not events:
                         del self.active_streams[identifier]
 
         return release

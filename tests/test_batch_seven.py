@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import errno
 import json
+import os
 import sqlite3
 import struct
 from contextlib import closing
@@ -43,7 +44,10 @@ def test_zip_undeclared_zip64_locator_is_rejected(tmp_path):
 def test_persisted_stamp_and_removal_fast_path(files, tmp_path, monkeypatch):
     book = files.import_file(make_zip(tmp_path / "sample.cbz")).book
     path = files.root.resolve(book.content.relative_path)
-    assert file_stamp(path) == (*live_stamp(path), path.stat().st_ctime_ns)
+    stamp = file_stamp(path)
+    assert stamp[:4] == live_stamp(path)
+    if os.name != "nt":  # Windows st_ctime is creation time; the stamp uses native ChangeTime.
+        assert stamp[4] == path.stat().st_ctime_ns
     service = Removals(files)
     preview = service.preview(book.id)
     receipt = service.remove(preview["id"], book.id, preview["token"], confirmed=True)

@@ -3,15 +3,59 @@
 import gzip
 import threading
 import time
+from types import SimpleNamespace
 
+import httpcore
 import httpx
 import pytest
 
+from mangacouch import source_http
 from mangacouch.downloads import Downloads
 from mangacouch.source_config import SourceSettings
 from mangacouch.source_http import NotSent, SourceError, SourceHTTP
 
 URL = "https://e-hentai.org/g/100/abcdef/"
+
+
+@pytest.mark.parametrize("result", ["data", "timeout", "cancel"])
+def test_interruptible_reads_preserve_timeout_and_restore_the_pooled_stream(monkeypatch, result):
+    clock = [0.0]
+    calls = []
+    http = SourceHTTP(SourceSettings(), {}, transport=httpx.MockTransport(lambda _: httpx.Response(200)))
+
+    class Network(httpcore.NetworkStream):
+        def read(self, max_bytes, timeout=None):
+            assert timeout is not None
+            calls.append(timeout)
+            clock[0] += timeout
+            if result == "data" and len(calls) == 3:
+                return b"body"
+            if result == "cancel":
+                http.interrupt("job")
+            raise httpcore.ReadTimeout()
+
+    network = Network()
+    original = network.read
+    response = httpx.Response(200, extensions={"network_stream": network})
+    monkeypatch.setattr(source_http, "time", SimpleNamespace(monotonic=lambda: clock[0]))
+    try:
+        with http.interruptible("job"):
+            release = http._track_response(response)
+        try:
+            if result == "data":
+                assert network.read(1024, timeout=0.25) == b"body"
+            else:
+                error = httpcore.ReadTimeout if result == "timeout" else InterruptedError
+                with pytest.raises(error):
+                    network.read(1024, timeout=None if result == "cancel" else 0.25)
+            assert calls == pytest.approx([0.1] if result == "cancel" else [0.1, 0.1, 0.05])
+        finally:
+            release()
+            release()  # Response exhaustion and context exit both release ownership.
+        assert network.read == original
+        assert not http.active_streams
+    finally:
+        http.close()
 
 
 @pytest.mark.parametrize("reset", [True, False])

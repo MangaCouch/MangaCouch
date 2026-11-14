@@ -516,6 +516,37 @@ def test_interrupt_is_scoped_to_one_active_job(local_queue):
     assert not http.active_streams
 
 
+def test_cancel_does_not_depend_on_socket_shutdown_waking_the_reader(local_queue, monkeypatch):
+    service, _, state = local_queue
+    http = service.http
+    state.mode = "stall"
+    stopped = threading.Event()
+    outcomes = []
+    # Winsock shutdown does not reliably wake the select inside a timed recv.
+    monkeypatch.setattr(socket.socket, "shutdown", lambda *args: None)
+
+    def read():
+        try:
+            with http.interruptible("job"):
+                http.read("GET", "https://archive.example/file.zip", cancelled=stopped.is_set)
+        except InterruptedError:
+            outcomes.append("cancelled")
+
+    worker = threading.Thread(target=read)
+    worker.start()
+    try:
+        wait_for_streams(http, {"job"})
+        stopped.set()
+        http.interrupt("job")
+        worker.join(2)
+        assert not worker.is_alive()
+        assert outcomes == ["cancelled"]
+    finally:
+        state.release.set()
+        worker.join(3)
+    assert not http.active_streams
+
+
 def test_completed_response_cannot_interrupt_a_reused_connection(local_queue):
     service, _, state = local_queue
     http = service.http
