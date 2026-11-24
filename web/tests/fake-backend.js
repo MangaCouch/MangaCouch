@@ -376,6 +376,15 @@
       after: start + limit < events.length ? cursor(page.at(-1).id) : null,
     };
   }
+  const scanProgress = (run) => ({
+    archives: run.entries.filter((item) => item.kind === "archive").length,
+    processed: run.entries.filter(
+      (item) => item.kind === "archive" && item.state !== "pending",
+    ).length,
+    discovering: run.entries.some(
+      (item) => item.kind === "directory" && item.state === "pending",
+    ),
+  });
   window.fetch = async (input, options = {}) => {
     const url = new URL(input, "http://fixture.local"),
       method = options.method || "GET";
@@ -521,7 +530,9 @@
               error_code: job.error_code,
             })),
         },
-        scan: null,
+        scan: fixture.scan
+          ? { state: fixture.scan.state, ...scanProgress(fixture.scan) }
+          : null,
         source_checks: {},
         cooldowns: fixture.sourceCooldowns,
         covers: fixture.cache.covers,
@@ -1410,10 +1421,7 @@
         counts,
         with_metadata: counts.indexed,
         without_metadata: 0,
-        archives: run.entries.filter((item) => item.kind === "archive").length,
-        processed: run.entries.filter(
-          (item) => item.kind === "archive" && item.state !== "pending",
-        ).length,
+        ...scanProgress(run),
         items: items.map(({ previous_books, ...item }) => item),
         after: items.length === limit ? items.at(-1).id : null,
       };

@@ -292,6 +292,27 @@ test("the task queue polls every 30 s when idle and every 5 s while work runs", 
   await x.tick(5000);
   assert.equal(reads(), 3);
 });
+test("the task queue waits for directory discovery before showing an archive total", async (t) => {
+  const x = await setup(
+    t,
+    (fixture) => {
+      fixture.scan = {
+        state: "active",
+        entries: [
+          { kind: "archive", state: "indexed" },
+          { kind: "directory", state: "pending" },
+        ],
+      };
+    },
+    TaskQueue,
+  );
+  await x.click("Task queue");
+  assert.match(x.text(), /Counting archives, 1 found/);
+  x.fixture.scan.entries[1].state = "expanded";
+  x.fixture.scan.entries.push({ kind: "archive", state: "pending" });
+  await x.tick(5000);
+  assert.match(x.text(), /Scan import\s*1\/2/);
+});
 test("running cover and thumbnail warm-ups appear in the task popover with its progress", async (t) => {
   const queue = await setup(
     t,

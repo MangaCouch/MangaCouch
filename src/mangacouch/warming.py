@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sqlite3
 import threading
 import time
 from typing import Literal
@@ -38,7 +39,7 @@ class Warmer:
         self._lock = threading.Lock()
         self._cursor: tuple[int, int] | None = None
         """(rowid, next page) of the active pass; None while no pass runs."""
-        self._done = self._total = self._rendered = self._failed = 0
+        self._done = self._finished_total = self._rendered = self._failed = 0
         self._signature: tuple[int, int, int] | None = None
         """(books, last rowid, cache generation) when the last pass finished."""
         self._requested = False
@@ -59,15 +60,26 @@ class Warmer:
 
     def summary(self) -> dict:
         with self._lock:
-            return {
-                "state": "active" if self._cursor is not None else "queued" if self._requested else "idle",
-                "done": self._done,
-                "total": max(self._total, self._done),
+            cursor, done = self._cursor, self._done
+            status = {
+                "state": "active" if cursor is not None else "queued" if self._requested else "idle",
+                "done": done,
+                "total": self._finished_total,
                 "rendered": self._rendered,
                 "failed": self._failed,
                 "full": self._full,
                 "finished_at": self._finished_at,
             }
+        if cursor is not None:
+            # Count the live backlog even while rendering a long book or waiting for covers.
+            # Polling pays for the count, not every four-image render batch.
+            with self.library.connection() as db:
+                status["total"] = done + self._remaining(db, cursor[0])
+        return status
+
+    @staticmethod
+    def _remaining(db: sqlite3.Connection, rowid: int) -> int:
+        return db.execute("SELECT count(*) FROM book WHERE rowid>=?", (rowid,)).fetchone()[0]
 
     def _signature_now(self, db) -> tuple[int, int, int]:
         count, last = db.execute("SELECT count(*),coalesce(max(rowid),0) FROM book").fetchone()
@@ -82,37 +94,41 @@ class Warmer:
             self._room = self.cache.data_bytes - self.cache.stored_bytes()
         return self._room >= reserve
 
-    def _finish(self, signature: tuple[int, int, int], *, full: bool = False) -> None:
+    def _finish(self, db: sqlite3.Connection, *, stopped_at: int | None = None) -> None:
+        signature = self._signature_now(db)
+        remaining = self._remaining(db, stopped_at) if stopped_at is not None else 0
         with self._lock:
-            self._signature, self._cursor, self._full = signature, None, full
+            self._signature, self._cursor, self._full = signature, None, stopped_at is not None
+            self._finished_total = self._done + remaining
             self._finished_at = int(time.time())
 
     def step(self) -> bool:
         """Renders one batch; True when it did work and another step should follow at once."""
         with self.library.connection() as db:
+            # An import after the empty cursor query must still trigger the next pass.
+            db.execute("BEGIN")
             with self._lock:
                 if self._cursor is None:
                     signature = self._signature_now(db)
                     if not self._requested and signature == self._signature:
                         return False
                     self._requested, self._full, self._room = False, False, 0
-                    self._cursor, self._total = (0, 0), signature[0]
+                    self._cursor = (0, 0)
                     self._done = self._rendered = self._failed = 0
                 rowid, page = self._cursor
             if not self._has_room():
-                self._finish(self._signature_now(db), full=True)
+                self._finish(db, stopped_at=rowid)
                 return False
             rows = db.execute(
                 "SELECT rowid,id,json_extract(content_json,'$.page_count') FROM book "
                 "WHERE rowid>=? ORDER BY rowid LIMIT ?",
                 (rowid, CHECKS),
             ).fetchall()
-            finished = None if rows else self._signature_now(db)
-        if finished is not None:
-            self._finish(finished)
-            return False
+            if not rows:
+                self._finish(db)
+                return False
         renders, checks = BATCH, CHECKS
-        # Books removed since the rows were listed are missing here and count as done.
+        # Skip books removed since the rows were listed, just as the live backlog does.
         for current, book_id, page_count in rows:
             start = page if current == rowid else 0
             end = 1 if self.kind == "covers" else max(1, int(page_count or 0))
@@ -130,9 +146,8 @@ class Warmer:
                     outcome = 0
                 else:
                     if not self._has_room():
-                        with self.library.connection() as db:
-                            self._finish(self._signature_now(db), full=True)
-                        return False
+                        # Save the pages already rendered. The next step records the full stop.
+                        break
                     outcome = self._warm(book, index)
                 index, checks = index + 1, checks - 1
                 if outcome is None:
@@ -146,7 +161,7 @@ class Warmer:
                 self._rendered += rendered
                 if complete:
                     self._cursor = (current + 1, 0)
-                    self._done += 1
+                    self._done += book is not None
                     self._failed += failed
                 else:
                     self._cursor = (current, index)

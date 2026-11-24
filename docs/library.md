@@ -9,7 +9,7 @@ uv run mangacouch --db data/state/library.sqlite scan --keep-source
 uv run mangacouch --db data/state/library.sqlite scan-status
 ```
 
-The CLI processes one bounded batch per invocation; repeat `scan` to continue. The web server advances scans in the background. Repeating `scan` keeps the unfinished scan's choice; pass `--keep-source` or `--no-keep-source` to change it.
+The CLI processes one bounded batch per invocation; repeat `scan` to continue. The web server advances scans in the background. Scan progress shows the number of archives found while directories are being listed and the total once discovery finishes. Repeating `scan` keeps the unfinished scan's choice; pass `--keep-source` or `--no-keep-source` to change it.
 
 - By default a scan **deletes** each original from `import/` once its copy in the library is verified. Pass `--keep-source` (or tick the option in the web app) to keep them.
 - Metadata travels with the archive: `<archive name>.eze.json` (an Eze export, also accepted as `<stem>.eze.json`) or `<archive name>.mangacouch.json` next to the file is imported with it and removed together with it.
@@ -137,6 +137,8 @@ Fixed limits protect the server from damaged or hostile files; a book beyond the
 Cache files are disposable and excluded from backups. They live next to the database in `.mangacouch-cache-library.sqlite/`; deleting that folder while the server is stopped only costs re-rendering.
 
 After books are added the server renders every missing cover (each book's first page) in the background, a few at a time between scans and imports, so the shelf is served from the cache; once covers are done it renders WebP thumbnails of every page the same way. Progress shows in the task queue and in **Settings → Library management → Cache**, where **Render missing covers** and **Render missing thumbnails** start a full pass on request. The thumbnail pass stops when the cache is nearly full rather than evicting covers; raise the budget with `--cache-bytes` (default 20 GiB) to hold every page. When the cache is full the oldest entries go first.
+
+Both progress indicators count books. Books imported during a pass enter the total as soon as they are registered. A multi-page book counts as processed once the worker has finished checking it.
 
 | Cache | Format | Memory | Disk |
 | --- | --- | --- | --- |

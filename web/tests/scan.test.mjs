@@ -54,6 +54,27 @@ test("pause and resume change the persistent task, leaving the page only stops p
   assert.equal(x.fixture.requests.length, count);
   assert.equal(x.fixture.scan.state, "active");
 });
+
+test("scan progress stays indeterminate until every directory has been listed", async (t) => {
+  const x = await setup(t, (fixture) => {
+    longScan(1)(fixture);
+    fixture.scan.entries[0].state = "indexed";
+    fixture.scan.entries.push({ id: 2, kind: "directory", state: "pending" });
+  });
+  const bar = x.view.getByRole("progressbar", { name: "Scan progress" });
+  assert.equal(bar.hasAttribute("value"), false);
+  x.fixture.scan.entries[1].state = "expanded";
+  x.fixture.scan.entries.push({
+    id: 3,
+    path: "nested/book.cbz",
+    kind: "archive",
+    state: "pending",
+    warnings: [],
+  });
+  await x.tick(15000);
+  assert.equal(bar.value, 1);
+  assert.equal(bar.max, 2);
+});
 test("scan item errors show localized text for stable codes and the server message otherwise", async (t) => {
   const x = await setup(t);
   await x.click("Start scan");

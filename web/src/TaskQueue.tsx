@@ -38,7 +38,12 @@ type TaskSummary = {
     total: number;
     items: Job[];
   };
-  scan: { state: string; processed: number; archives: number } | null;
+  scan: {
+    state: string;
+    processed: number;
+    archives: number;
+    discovering: boolean;
+  } | null;
   source_checks: Record<string, number>;
   cooldowns?: Record<string, number>;
   covers?: WarmStatus;
@@ -219,7 +224,12 @@ export function TaskQueue({
                 >
                   <strong>{t("扫描导入", "Scan import")}</strong>
                   <span>
-                    {data.scan.processed}/{data.scan.archives}
+                    {data.scan.discovering
+                      ? t(
+                          `正在统计，已发现 ${data.scan.archives} 个文件`,
+                          `Counting archives, ${data.scan.archives} found`,
+                        )
+                      : `${data.scan.processed}/${data.scan.archives}`}
                   </span>
                 </RouteLink>
               )}

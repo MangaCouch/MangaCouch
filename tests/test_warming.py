@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 from helpers import CSRF, ORIGIN, PASSCODE, login, make_zip
 
@@ -7,6 +8,7 @@ from mangacouch.auth import Auth
 from mangacouch.configuration import HTTPSettings
 from mangacouch.http import create_app
 from mangacouch.image_cache import ImageCache
+from mangacouch.maintenance import Maintenance
 from mangacouch.warming import Warmer
 
 
@@ -60,8 +62,10 @@ def test_an_unreadable_book_is_counted_and_does_not_stall_the_pass(files, tmp_pa
     assert warmer.cache.has(files.cover_key(second))
 
 
-def test_cover_routes_report_cache_budget_and_start_a_pass(files, tmp_path):
+def test_cover_routes_report_cache_budget_and_start_a_pass(files, tmp_path, monkeypatch):
     books(files, tmp_path, 2)
+    workers: list[Maintenance] = []
+    monkeypatch.setattr(Maintenance, "start", lambda worker: workers.append(worker))
     auth = Auth(files.library)
     auth.initialize(PASSCODE)
     settings = HTTPSettings(public_origin=ORIGIN, thumbnail_cache_bytes=8 * 1024**2)
@@ -74,8 +78,16 @@ def test_cover_routes_report_cache_budget_and_start_a_pass(files, tmp_path):
             assert client.post(f"/api/cache/{kind}/warm").status_code == 403
             assert client.post(f"/api/cache/{kind}/warm", headers=CSRF).status_code == 200
         assert client.post("/api/cache/pages/warm", headers=CSRF).status_code == 422
-        assert {"covers", "thumbnails"} <= set(client.get("/api/tasks").json())
-        assert "cache" in client.get("/api/settings/summary").json()
+        workers[0].run_steps()  # Covers run first.
+        workers[0].run_steps()  # Thumbnails have now checked both books.
+        files.import_file(make_zip(tmp_path / "new.zip", ["new.png"]))
+        for status in (
+            client.get("/api/tasks").json(),
+            client.get("/api/cache").json(),
+            client.get("/api/settings/summary").json()["cache"],
+        ):
+            warm = status["thumbnails"]
+            assert (warm["state"], warm["done"], warm["total"]) == ("active", 2, 3)
 
 
 def test_thumbnails_cover_every_page_across_steps(files, tmp_path):
@@ -98,6 +110,28 @@ def test_thumbnails_cover_every_page_across_steps(files, tmp_path):
     assert covers.summary()["rendered"] == 0 and covers.summary()["done"] == 2
 
 
+@pytest.mark.parametrize("kind", ["covers", "thumbnails"])
+def test_warm_progress_counts_all_pending_books_before_rendering_them(files, tmp_path, kind):
+    files.import_file(make_zip(tmp_path / "first.zip", ["first.png"]))
+    cache = ImageCache(tmp_path / "cache")
+    warmer = Warmer(files, cache, kind)
+    try:
+        assert warmer.step()
+        added = books(files, tmp_path, 6)
+        progress = warmer.summary()
+        assert (progress["done"], progress["total"]) == (1, 7)
+        assert warmer.step()
+        progress = warmer.summary()
+        assert 1 < progress["done"] < progress["total"] == 7
+        with files.library.transaction() as db:
+            db.execute("DELETE FROM book WHERE id=?", (added[-1].id,))
+        assert warmer.summary()["total"] == 6
+        run(warmer)
+        assert warmer.summary()["done"] == warmer.summary()["total"] == 6
+    finally:
+        cache.close()
+
+
 def test_thumbnail_pass_stops_before_it_would_evict(files, tmp_path, monkeypatch):
     books(files, tmp_path, 3)
     cache = ImageCache(tmp_path / "cache")
@@ -108,3 +142,20 @@ def test_thumbnail_pass_stops_before_it_would_evict(files, tmp_path, monkeypatch
     assert summary["state"] == "idle" and summary["full"] and summary["rendered"] == 0
     # Until something changes it stays stopped rather than retrying every step.
     assert not warmer.step()
+
+
+def test_cache_filling_mid_book_preserves_rendered_pages_and_remaining_total(files, tmp_path, monkeypatch):
+    books(files, tmp_path, 1)
+    cache = ImageCache(tmp_path / "cache")
+    warmer = Warmer(files, cache, "thumbnails")
+    # Leave exactly the reserve: after the first render the next check finds no room.
+    used = iter([cache.data_bytes - cache.item_bytes, cache.data_bytes])
+    monkeypatch.setattr(cache, "stored_bytes", lambda: next(used, cache.data_bytes))
+    try:
+        assert warmer.step()
+        files.import_file(make_zip(tmp_path / "new.zip", ["new.png"]))
+        assert not warmer.step()
+        status = warmer.summary()
+        assert status["full"] and (status["done"], status["total"], status["rendered"]) == (0, 2, 1)
+    finally:
+        cache.close()

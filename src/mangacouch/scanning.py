@@ -77,6 +77,17 @@ class Scanner:
                 (int(time.time()) - SCAN_RETENTION,),
             ).rowcount
 
+    @staticmethod
+    def _progress(db: sqlite3.Connection, identifier: str) -> dict:
+        archives, processed, pending_dirs = db.execute(
+            "SELECT count(*) FILTER (WHERE kind='archive'), "
+            "count(*) FILTER (WHERE kind='archive' AND state!='pending'), "
+            "count(*) FILTER (WHERE kind='directory' AND state='pending') "
+            "FROM scan_item WHERE scan_id=?",
+            (identifier,),
+        ).fetchone()
+        return {"archives": archives, "processed": processed, "discovering": bool(pending_dirs)}
+
     @overload
     def summary(self, identifier: str) -> dict: ...
 
@@ -86,6 +97,7 @@ class Scanner:
     def summary(self, identifier: str | None = None) -> dict | None:
         """Light progress view of the latest scan, or of `identifier` (KeyError when unknown)."""
         with self.library.connection() as db:
+            db.execute("BEGIN")
             run = db.execute(
                 "SELECT id,state,error_code FROM scan_run WHERE (? IS NULL OR id=?) "
                 "ORDER BY rowid DESC LIMIT 1",
@@ -95,12 +107,7 @@ class Scanner:
                 if identifier is not None:
                     raise NotFound("Scan not found")
                 return None
-            total, processed = db.execute(
-                "SELECT count(*),coalesce(sum(state!='pending'),0) FROM scan_item "
-                "WHERE scan_id=? AND kind='archive'",
-                (run["id"],),
-            ).fetchone()
-            return {**dict(run), "archives": total, "processed": processed}
+            return {**dict(run), **self._progress(db, run["id"])}
 
     def get(self, identifier: str, *, after: str = "", limit: int = 50, state: str = "") -> dict:
         if state not in {"", "pending", "expanded", "indexed", "unchanged", "duplicate", "error"}:
@@ -135,13 +142,7 @@ class Scanner:
                 (identifier,),
             ).fetchone()[0]
             result["without_metadata"] = result["counts"]["indexed"] - result["with_metadata"]
-            result["archives"] = db.execute(
-                "SELECT count(*) FROM scan_item WHERE scan_id=? AND kind='archive'", (identifier,)
-            ).fetchone()[0]
-            result["processed"] = db.execute(
-                "SELECT count(*) FROM scan_item WHERE scan_id=? AND kind='archive' AND state!='pending'",
-                (identifier,),
-            ).fetchone()[0]
+            result.update(self._progress(db, identifier))
             rows = db.execute(
                 "SELECT * FROM scan_item WHERE scan_id=? AND id>? AND "
                 "(kind='archive' OR state='error') AND (?='' OR state=?) ORDER BY id LIMIT ?",

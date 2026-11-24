@@ -31,6 +31,7 @@ interface ScanRun {
   error_code: string | null;
   counts: Record<ItemState, number>;
   archives: number;
+  discovering: boolean;
   with_metadata: number;
   without_metadata: number;
   processed: number;
@@ -224,7 +225,9 @@ export function Scan({
           <div className="section-head">
             <h4>
               {scan.state === "active"
-                ? t("扫描中", "Scanning")
+                ? scan.discovering
+                  ? t("正在统计书籍文件", "Counting archives")
+                  : t("扫描中", "Scanning")
                 : scan.state === "done"
                   ? scan.counts.error
                     ? t(
@@ -241,7 +244,11 @@ export function Scan({
               }).format(new Date(scan.created_at * 1000))}
             </span>
           </div>
-          <progress value={scan.processed} max={Math.max(scan.archives, 1)} />
+          <progress
+            aria-label={t("扫描进度", "Scan progress")}
+            value={scan.discovering ? undefined : scan.processed}
+            max={Math.max(scan.archives, 1)}
+          />
           <dl className="scan-stats">
             <div>
               <dt>{t("发现书籍文件", "Archives found")}</dt>

@@ -51,6 +51,22 @@ def test_scan_copies_verifies_then_consumes_source(files):
     assert files.root.resolve(book.content.relative_path + ".mangacouch.json").is_file()
 
 
+def test_scan_progress_knows_when_nested_archive_discovery_is_complete(files):
+    folder = inbox(files)
+    make_zip(folder / "a.cbz")
+    nested = folder / "nested"
+    nested.mkdir()
+    make_zip(nested / "b.cbz", ["b.png"])
+    scanner = Scanner(files)
+    identifier: str = scanner.start(keep_source=True)["id"]
+    scanner.step(identifier, limit=2)
+    for progress in (scanner.summary(identifier), scanner.get(identifier)):
+        assert progress["discovering"] and progress["processed"] == progress["archives"] == 1
+    scanner.step(identifier)
+    for progress in (scanner.summary(identifier), scanner.get(identifier)):
+        assert not progress["discovering"] and (progress["processed"], progress["archives"]) == (1, 2)
+
+
 def test_keep_source_and_repeat_scan_preserve_personal_state(files, monkeypatch):
     path = make_zip(inbox(files) / "kept.cbz")
     scanner = Scanner(files)
@@ -217,7 +233,14 @@ def test_scan_retains_eze_with_field_warnings(files):
     sidecar.write_text(json.dumps({"title": "Example", "category": 123, "tags": {"female": [42]}}))
     for _ in range(3):
         run = scanner.step(run["id"], limit=10)
-    assert run["state"] == "done" and set(run) == {"id", "state", "error_code", "archives", "processed"}
+    assert run["state"] == "done" and set(run) == {
+        "id",
+        "state",
+        "error_code",
+        "archives",
+        "processed",
+        "discovering",
+    }
     assert source.exists() and sidecar.exists()
     assert any(item["warnings"] for item in scanner.get(run["id"])["items"])
 
