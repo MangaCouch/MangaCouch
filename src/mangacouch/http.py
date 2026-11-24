@@ -545,6 +545,7 @@ def create_app(
             scanner.purge,
             auth.purge,
             downloads.purge,
+            review.recheck_legacy_languages,
             review.purge,
             sync.purge,
             refresh_source_checks,

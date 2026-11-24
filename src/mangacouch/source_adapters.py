@@ -20,6 +20,7 @@ from .models import (
     SourceNotes,
     SourceRating,
     Tag,
+    tagged_languages,
 )
 from .source_http import SourceError, SourceHTTP, public_url
 
@@ -41,11 +42,6 @@ LOGGER = logging.getLogger(__name__)
 
 def text(value) -> str | None:
     return unescape(str(value)).strip() if value is not None and str(value).strip() else None
-
-
-def language(tags: list[Tag]) -> str | None:
-    values = [t.value for t in tags if t.namespace == "language" and t.value not in {"translated", "rewrite"}]
-    return values[0] if len(set(values)) == 1 else None
 
 
 def archive_endpoint(source: Source) -> str:
@@ -186,10 +182,11 @@ def _eh_metadata(source: Source, value: dict) -> Metadata:
         and value.get("current_key")
         else []
     )
+    languages = tagged_languages(tags)
     return Metadata(
         title=text(value.get("title")),
         original_title=text(value.get("title_jpn")),
-        language=language(tags),
+        language=languages[0] if len(languages) == 1 else None,
         translated=any(t.namespace == "language" and t.value == "translated" for t in tags),
         work_type=text(value.get("category")),
         tags=tags,

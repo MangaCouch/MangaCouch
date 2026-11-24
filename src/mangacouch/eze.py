@@ -8,7 +8,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from .metadata_import import MetadataImport
-from .models import Metadata, Source, normalized
+from .models import Metadata, Source, normalized, unknown_language
 
 
 def eze_path(archive):
@@ -116,7 +116,7 @@ def _text(value: object) -> str | None:
 
 def _language(value: object) -> str | None:
     value = _text(value)
-    return None if value is None or normalized(value) in {"n/a", "unknown"} else value
+    return None if unknown_language(value) else value
 
 
 def _tags(value: object) -> list[dict[str, str]]:

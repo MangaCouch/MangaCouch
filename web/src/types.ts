@@ -69,6 +69,7 @@ export interface Personal {
 }
 type ReviewState = "needs_review" | "confirmed";
 export interface Book {
+  tagged_languages: string[];
   in_collection?: boolean;
   page_version?: string;
   /** `[width, height]` of every page; only on the full `GET /api/books/{id}` projection. */

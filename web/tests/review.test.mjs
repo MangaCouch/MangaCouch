@@ -86,6 +86,29 @@ const matched = (fixture) => {
   const book = fixture.books[0];
   fixture.reviewProofs[book.id] = JSON.stringify(book.metadata);
 };
+test("a book with several tagged languages shows Multilingual and keeps each language in its tags", async (t) => {
+  const langs = ["chinese", "english", "japanese", "korean", "spanish"];
+  const x = await setup(t, ({ books: [book] }) => {
+    book.metadata.language = null;
+    book.tagged_languages = langs;
+    book.metadata.tags = langs.map((value) => ({
+      namespace: "language",
+      value,
+    }));
+  });
+  assert.equal(
+    x.view.container.querySelector(".pill-language").textContent,
+    "Multilingual",
+  );
+  assert.deepEqual(
+    Array.from(
+      x.view.container.querySelectorAll(".tag-row .tag-pill"),
+      (pill) => pill.textContent,
+    ),
+    langs,
+  );
+});
+
 test("a metadata save reports its file sync from the save itself, without a second request", async (t) => {
   const x = await setup(t, (fixture) => {
     fixture.syncOutcomes["fixture-0"] = "pending";

@@ -130,12 +130,16 @@ export function languageLabel(value: unknown, t: Translate) {
   return t(names[language]!, language);
 }
 export function languageName(value: unknown) {
-  const text = String(value ?? "").toLowerCase();
+  const text = String(value ?? "")
+    .trim()
+    .toLowerCase();
   if (["en", "english", "eng", "英文", "英语"].includes(text)) return "English";
   if (["ja", "jp", "japanese", "日语", "日文", "日本語"].includes(text))
     return "Japanese";
   if (["cn", "zh", "chinese", "中文", "汉语"].includes(text)) return "Chinese";
-  return !text || ["unknown", "未知"].includes(text) ? "Unknown" : "Other";
+  return !text || ["unknown", "n/a", "未知"].includes(text)
+    ? "Unknown"
+    : "Other";
 }
 export function Pill({
   kind = "plain",
@@ -168,7 +172,13 @@ export function BookPills({
   file?: boolean;
   rating?: boolean;
 }) {
-  const language = languageName(book.metadata.language);
+  const tagged = book.tagged_languages ?? [];
+  const useTags =
+    languageName(book.metadata.language) === "Unknown" && tagged.length > 0;
+  const language =
+    useTags && tagged.length > 1
+      ? "Multilingual"
+      : languageName(useTags ? tagged[0] : book.metadata.language);
   const score = book.personal.rating ?? book.metadata.source_rating?.average;
   const work = book.metadata.work_type ?? "";
   return (
@@ -179,7 +189,11 @@ export function BookPills({
         </Pill>
       )}
       <Pill kind="language" value={language}>
-        {languageLabel(language, t)}
+        {language === "Multilingual"
+          ? t("多语言", "Multilingual")
+          : useTags && language === "Other"
+            ? tagged[0]
+            : languageLabel(language, t)}
       </Pill>
       {file && (
         <Pill kind="file" value={book.content.format}>

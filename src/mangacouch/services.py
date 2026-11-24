@@ -30,7 +30,7 @@ from .image_cache import ImageCache
 from .ingest import FileLibrary
 from .limits import ImportCancelled
 from .maintenance import Maintenance
-from .models import canonical_json
+from .models import canonical_json, tagged_languages
 from .organization import Organization
 from .removals import Removals
 from .review import Review
@@ -157,6 +157,7 @@ class Services:
         for book in books:
             item = {
                 **jsonable_encoder(book),
+                "tagged_languages": tagged_languages(book.metadata.tags),
                 "tag_translations": translations[book.id],
                 "source_check": checks.get(book.id),
                 "page_version": image_version(book),

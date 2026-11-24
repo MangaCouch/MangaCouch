@@ -157,6 +157,21 @@ class Tag(Model):
         return tag_value(value) if isinstance(value, str) else value
 
 
+def unknown_language(value: str | None) -> bool:
+    return normalized((value or "").strip()) in {"", "unknown", "n/a", "未知"}
+
+
+def tagged_languages(tags: list[Tag]) -> list[str]:
+    """Distinct language names, excluding EH translation flags and unknown placeholders."""
+    languages = {}
+    for tag in tags:
+        if normalized(tag.namespace) == "language" and not unknown_language(tag.value):
+            key = normalized(tag.value)
+            if key not in {"translated", "rewrite"}:
+                languages.setdefault(key, tag.value)
+    return list(languages.values())
+
+
 EH_SITES: tuple[str, ...] = ("ehentai", "exhentai")
 """E-Hentai and ExHentai: one backend and one gallery namespace, so they share pacing, IP bans,
 rate-limit halts and gallery identity."""

@@ -241,7 +241,7 @@ def test_online_rule_confirmation_is_reported_as_automatic(queue, files, tmp_pat
     book = local_with_source(files, tmp_path, service)
     assert service.checks.step()
     confirmation = Review(files).preview(book.id)["confirmation"]
-    assert confirmation["action"] == "auto_confirm" and confirmation["rule"] == "online-source/1"
+    assert confirmation["action"] == "auto_confirm" and confirmation["rule"] == "online-source/2"
     assert confirmation["evidence_event_id"] is None
 
 

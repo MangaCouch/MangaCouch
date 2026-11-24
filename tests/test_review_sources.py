@@ -456,6 +456,97 @@ def test_a_halt_takes_the_write_lock_once_not_every_second(queue, files, tmp_pat
     assert len(transactions) == 1
 
 
+@pytest.mark.parametrize(
+    "languages",
+    [
+        [],
+        ["unknown"],
+        ["translated", "rewrite"],
+        ["chinese", "english", "japanese", "korean"],
+        ["chinese", "english", "japanese", "korean", "spanish"],
+    ],
+)
+def test_source_without_a_single_language_needs_no_language_review(queue, files, tmp_path, api, languages):
+    from test_sources import local_with_source
+
+    service, remote = queue
+    remote.tags = [f"language:{value}" for value in languages]
+    book = local_with_source(files, tmp_path, service)
+    assert service.checks.step()
+    detail = api.get(f"/api/books/{book.id}").json()
+    assert detail["tagged_languages"] == [
+        v for v in languages if v not in {"translated", "rewrite", "unknown"}
+    ]
+    assert detail["metadata"]["language"] is None
+    assert detail["review_state"] == "confirmed"
+    assert detail["source_check"]["reasons"] == []
+    assert api.get(f"/api/books/{book.id}/review").json()["issues"] == []
+
+
+@pytest.mark.parametrize("title", ["Known", ""])
+def test_old_language_checks_are_revisited_from_saved_evidence(queue, files, tmp_path, title):
+    from test_sources import local_with_source
+
+    from mangacouch.review import Review
+
+    service, remote = queue
+    remote.tags = []
+    remote.title = title
+    book = local_with_source(files, tmp_path, service)
+    assert service.checks.step()
+    review = Review(files)
+    with files.library.transaction() as db:
+        db.execute("UPDATE book SET review_state='needs_review' WHERE id=?", (book.id,))
+        db.execute(
+            "UPDATE source_check SET state='needs_review',reasons_json=? WHERE book_id=?",
+            (json.dumps(["language_unknown"] if title else ["title_missing", "language_unknown"]), book.id),
+        )
+        review.record_event(
+            db, book.id, "auto_check", {"rule": "online-source/1", "reasons": ["language_unknown"]}
+        )
+    remote.requests.clear()
+    review.recheck_legacy_languages()
+    check = service.checks.get(book.id)
+    assert (check["state"], check["reasons"]) == (
+        ("done", []) if title else ("needs_review", ["title_missing"])
+    )
+    assert files.library.get_book(book.id).review_state == ("confirmed" if title else "needs_review")
+    token = review.preview(book.id)["token"]
+    review.recheck_legacy_languages()
+    assert review.preview(book.id)["token"] == token
+    assert not remote.requests
+
+
+def test_missing_local_language_only_waived_by_matching_source_with_no_language(queue, files, tmp_path):
+    from helpers import save_metadata
+    from test_sources import local_with_source
+
+    from mangacouch.review import Review
+    from mangacouch.source_http import gallery_url
+
+    service, remote = queue
+    remote.tags = []
+    book = local_with_source(files, tmp_path, service)
+    observation = service.sources.fetch(gallery_url(EH), comments=False)
+    # Older source responses could carry a literal unknown marker alongside a blank local field.
+    observation["metadata"]["language"] = "Unknown"
+    review = Review(files)
+    local = book.metadata.model_copy(update={"protected_fields": ["language"]})
+    current = save_metadata(files.library, book.id, local, expected_revision=book.metadata_revision)
+    service.online.apply(book.id, observation, current.metadata_revision)
+    assert not review.preview(book.id)["issues"]
+    with files.library.transaction() as db:
+        db.execute(
+            "UPDATE source_observation SET observation_json="
+            "json_set(observation_json,'$.content_sha256','old') WHERE book_id=?",
+            (book.id,),
+        )
+    assert "language_unknown" in review.preview(book.id)["issues"]
+    observation["metadata"]["language"] = "english"
+    service.online.apply(book.id, observation, files.library.get_book(book.id).metadata_revision)
+    assert set(review.preview(book.id)["issues"]) == {"language_unknown", "candidates_unresolved"}
+
+
 @pytest.mark.parametrize("resolution", ["acknowledge", "edit"])
 def test_confirming_a_book_closes_its_source_check(queue, files, tmp_path, resolution):
     """A check left at needs_review drops out of the unfinished list once the book is confirmed,
@@ -465,18 +556,18 @@ def test_confirming_a_book_closes_its_source_check(queue, files, tmp_path, resol
     from mangacouch.review import Review
 
     service, remote = queue
-    remote.tags = ["artist:Example"]
+    remote.title = ""
     book = local_with_source(files, tmp_path, service)
     service.checks.step()
     check = service.checks.get(book.id)
-    assert (check["state"], check["reasons"]) == ("needs_review", ["language_unknown"])
+    assert (check["state"], check["reasons"]) == ("needs_review", ["title_missing"])
     generation = check["generation"]
     review = Review(files)
     if resolution == "acknowledge":
-        review.complete(book.id, review.preview(book.id)["token"], ["language_unknown"])
+        review.complete(book.id, review.preview(book.id)["token"], ["title_missing"])
     else:
         current = files.library.get_book(book.id)
-        edited = current.metadata.model_copy(update={"language": "japanese"})
+        edited = current.metadata.model_copy(update={"title": "Local title"})
         review.edit(book.id, edited, expected_revision=current.metadata_revision)
     assert files.library.get_book(book.id).review_state == "confirmed"
     check = service.checks.get(book.id)

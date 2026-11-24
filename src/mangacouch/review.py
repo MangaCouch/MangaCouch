@@ -11,9 +11,19 @@ from .database import Book
 from .errors import InvalidInput, NotFound, RevisionConflict
 from .files import ContentChanged, file_stamp
 from .ingest import FileLibrary, image_bytes
-from .models import Content, FieldName, Metadata, Source, canonical_json, normalized
+from .models import (
+    Content,
+    FieldName,
+    Metadata,
+    Source,
+    canonical_json,
+    normalized,
+    tagged_languages,
+    unknown_language,
+)
 
 LOCAL_RULE = "local-confirmation/1"
+ONLINE_RULE = "online-source/2"
 EVENT_RETENTION = 90 * 86400
 """Seconds that routine review events (source refreshes, failed automatic checks) are kept."""
 
@@ -72,6 +82,9 @@ class Review:
                 for field in get_args(FieldName)
                 if (not name.startswith(("eze:", "online:")) or field in validated["field_sources"])
                 and not (name.startswith("online:") and field == "source_rating")
+                and not (
+                    name.startswith("online:") and field == "language" and unknown_language(validated[field])
+                )
                 and not _equivalent(values[field], validated[field])
             ]
             candidates[name] = {"metadata": validated, "fields": differences, "decision": decisions.get(name)}
@@ -103,8 +116,6 @@ class Review:
         issues = []
         if not (metadata.title or "").strip() and not (metadata.original_title or "").strip():
             issues.append("title_missing")
-        if not metadata.language or normalized(metadata.language.strip()) in {"unknown", "n/a", ""}:
-            issues.append("language_unknown")
         online = None
         resampled = False
         if metadata.source:
@@ -131,6 +142,14 @@ class Review:
                     )
                 ):
                     online = observation
+        # A matching source may have no single language (including a multilingual gallery).
+        source_metadata = online.get("metadata", {}) if online else {}
+        if (
+            unknown_language(metadata.language)
+            and not tagged_languages(metadata.tags)
+            and not ("language" in source_metadata and unknown_language(source_metadata["language"]))
+        ):
+            issues.append("language_unknown")
         if online is None:
             issues.append("source_unverified" if metadata.source else "source_absent")
         if metadata.declared_page_count is not None and metadata.declared_page_count != content.page_count:
@@ -185,7 +204,7 @@ class Review:
             "candidates": candidates,
             "issues": issues,
             "automatic": {
-                "rule": "online-source/1" if online else LOCAL_RULE,
+                "rule": ONLINE_RULE if online else LOCAL_RULE,
                 "eligible": not reasons,
                 "reasons": reasons,
                 "evidence_event_id": proof["id"] if proof else None,
@@ -205,6 +224,39 @@ class Review:
             "compared_byte_size": compared_byte_size,
             "byte_size_basis": byte_size_basis,
         }
+
+    def recheck_legacy_languages(self) -> None:
+        """Revisit saved failures from the old language rule using the existing observation."""
+        with self.library.connection() as db:
+            checks = db.execute(
+                "SELECT book_id,generation FROM source_check c WHERE state='needs_review' "
+                "AND error_code IS NULL AND 'language_unknown' IN "
+                "(SELECT value FROM json_each(reasons_json)) AND coalesce(("
+                "SELECT json_extract(details_json,'$.rule') FROM review_event WHERE book_id=c.book_id "
+                "AND action='auto_check' ORDER BY id DESC LIMIT 1),'online-source/1')='online-source/1'"
+            ).fetchall()
+        for book_id, generation in checks:
+            try:
+                stamp = self.verification_stamp(book_id)
+            except NotFound:
+                continue
+            if stamp is None:
+                continue
+            with self.files.root.mutation(), self.library.transaction() as db:
+                if not db.execute(
+                    "SELECT 1 FROM source_check WHERE book_id=? AND generation=? AND state='needs_review' "
+                    "AND error_code IS NULL",
+                    (book_id, generation),
+                ).fetchone():
+                    continue
+                result = self.auto_check(db, book_id, record_failure=True, verified_stamp=stamp)
+                if result["outcome"] == "already_confirmed":
+                    settle_source_check(db, book_id)
+                elif result["reasons"]:
+                    db.execute(
+                        "UPDATE source_check SET reasons_json=?,generation=generation+1 WHERE book_id=?",
+                        (canonical_json(result["reasons"]), book_id),
+                    )
 
     def purge(self) -> int:
         """Drop source refresh and failed automatic check events older than EVENT_RETENTION.
