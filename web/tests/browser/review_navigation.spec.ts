@@ -10,19 +10,24 @@ test.beforeEach(async ({ page }) => {
   await expect(page.locator(".book-card")).toHaveCount(24);
 });
 
-test("URL filters survive tag history and remain isolated from a plain new tab", async ({
+test("home filters carry into new tabs while explicit links and history keep their own view", async ({
   page,
   context,
 }, info) => {
   await page.getByLabel("筛选与排序", { exact: true }).click();
   await page.getByRole("button", { name: "未读", exact: true }).click();
+  await page.getByRole("button", { name: "随机", exact: true }).click();
   await page.getByLabel("筛选与排序", { exact: true }).click();
   await expect(page).toHaveURL(/reading=unread/);
   const filtered = page.url();
   const other = await context.newPage();
   await other.goto(new URL("/", page.url()).href);
   await expect(other.locator(".book-card")).toHaveCount(24);
-  expect(new URL(other.url()).search).toBe("");
+  await expect(other).toHaveURL(/order=random/);
+  expect(new URL(other.url()).searchParams.get("reading")).toBe("unread");
+  expect(new URL(other.url()).searchParams.get("seed")).not.toBe(
+    new URL(filtered).searchParams.get("seed"),
+  );
   await page.locator(".book-card").first().click();
   await expect(page.locator(".book-intro")).toBeVisible();
   const detail = page.url();
@@ -35,11 +40,27 @@ test("URL filters survive tag history and remain isolated from a plain new tab",
   await expect(page).toHaveURL(filtered);
   await expect(page.locator(".book-card")).toHaveCount(24);
   await page.locator(".wordmark").click();
-  await expect.poll(() => new URL(page.url()).search).toBe("");
+  await expect(page).toHaveURL(/order=random/);
+  await expect(page).toHaveURL(/reading=unread/);
   await page.screenshot({
     path: `/tmp/mc-e1-library-after-${info.project.name}.png`,
   });
   await other.close();
+});
+
+test("marking a selected finished book unread clears its shelf selection", async ({
+  page,
+}) => {
+  await page.getByLabel("筛选与排序", { exact: true }).click();
+  await page.getByRole("button", { name: "已读完", exact: true }).click();
+  await page.getByLabel("筛选与排序", { exact: true }).click();
+  await expect(page.locator(".book-card")).toHaveCount(1);
+  await page.locator(".book-select").click();
+  await expect(page.locator(".selection-toolbar")).toContainText("已选 1 本");
+  await page.locator(".book-card").click({ button: "right" });
+  await page.getByRole("menuitem", { name: "标为未读" }).click();
+  await expect(page.locator(".book-card")).toHaveCount(0);
+  await expect(page.locator(".selection-toolbar")).toHaveCount(0);
 });
 
 test("reader return consumes history and route buttons keep their full size", async ({

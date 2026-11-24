@@ -62,6 +62,7 @@ type Job = {
   /** Set when the job comes back from a submission: new, started over, or returned as it is. */
   outcome?: "created" | "existing";
   details: {
+    phase?: string;
     selected?: Observation;
     mode?: Mode;
     quote?: {
@@ -878,7 +879,7 @@ export function Downloads({
                       {activeStates.includes(job.state) && (
                         <LoaderCircle size={12} className="spinner" />
                       )}
-                      {downloadLabel(job, t)}
+                      {downloadLabel(job, t, job.details.phase)}
                     </Pill>
                     {job.state === "downloading" && (
                       <Pill>

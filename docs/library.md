@@ -38,7 +38,9 @@ books/
 
 ## Selection and collection drafts
 
-Selections stay across pages of the same search. Changing the search or filters, including through the logo or browser history, clears the selection. Tag chips and free text share the 1,024-character query limit.
+Opening the library homepage restores this browser's last filter and sort choices on page one. Random order starts a fresh shuffle. Opening a filtered link or reloading it restores the view in its URL, including its shuffle order.
+
+Selections stay across pages of the same search. When the shelf refreshes, books that no longer match drop out of the selection. Changing the search or filters, including through the logo or browser history, clears the selection. Tag chips and free text share the 1,024-character query limit.
 
 New collection and rule-editing dialogs keep unsaved drafts when you click outside. Closing or navigating away with changes asks you to keep editing or explicitly discard them. Saving successfully closes the dialog normally.
 
@@ -75,6 +77,8 @@ Background source checks stop at 80% used, leaving the rest to downloads and req
 A ban, a "too fast" warning or an HTTP 429 halts every E-Hentai request until it ends (a ban until it lifts), fills the bucket and scales its capacity and recovery by 0.67 for 24 hours; another one within that day scales them again, down to 0.3 of the settings, and each one restarts the 24 hours. Answers to requests that were already in flight only extend the halt. The settings page lists the latest ones. Three short answers in a row that MangaCouch does not recognize (not a ban page, not a gallery, not valid API data) pause E-Hentai requests for 10 minutes as a precaution, without filling or shrinking the bucket; this pause is not stored and is not listed. Server errors (5xx) never count toward it: they are retried like a dropped connection.
 
 Archive downloads, thumbnails and other file servers spend no budget; each host takes four transfers at a time. Getting an archive costs about one point where fetching a 200-page gallery image by image would cost 200, so downloads always use archives. The budgets, the halts and the 24-hour reduction are stored in the database, so a restart neither clears nor resets them. Up to four archives transfer or import at once. Two separate metadata workers inspect and quote galleries. Low disk space delays only the affected transfer; metadata requests and smaller downloads can continue.
+
+The download queue shows whether a task is waiting for metadata, waiting for confirmation, queued for download, waiting for recovery, or queued for import.
 
 Batch confirmation freezes the selected titles, qualities, revisions and GP total in a confirmation dialog. Each result is reported separately; failed and ineligible items remain selected. Cancelled tasks stay in History until explicitly retried; Retry keeps the approved quality and price ceiling, while a task cancelled before approval still requires confirmation. Network/5xx failures and failed EH archive-link recovery share a budget of five failures per run; exhausted tasks wait for an explicit retry. Successful inspection or transfer and a new approval reset the budget; recovery quotes and repeated submissions do not reset it. A failed request with an unknown payment result keeps its recovery state. Rate limits, GP exhaustion, archive preparation and temporary local storage availability wait without spending that budget. GP waiters share one balance check with an increasing interval (up to 15 minutes); **Check balance now** probes immediately.
 

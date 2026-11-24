@@ -3,7 +3,7 @@ import type { Translate } from "./types";
 
 export const downloadStates: Record<string, [string, string]> = {
   queued: ["等待处理", "Queued"],
-  inspecting: ["获取来源", "Fetching source"],
+  inspecting: ["正在获取元数据", "Fetching metadata"],
   needs_approval: ["等待下载确认", "Confirm download"],
   submitting: ["提交下载", "Requesting archive"],
   downloading: ["下载中", "Downloading"],
@@ -17,13 +17,29 @@ export const downloadStates: Record<string, [string, string]> = {
   verification_required: ["需要处理来源登录", "Source sign-in needed"],
 };
 
+const queuedPhases: Record<string, [string, string]> = {
+  inspect: ["等待获取元数据", "Waiting for metadata"],
+  submit: ["排队下载中", "Queued for download"],
+  transfer: ["排队下载中", "Queued for download"],
+  recover: ["等待恢复下载", "Waiting to recover download"],
+  import: ["等待入库", "Queued for import"],
+};
+
 export function downloadLabel(
   job: { state: string; error_code?: string | null },
   t: Translate,
+  phase?: string,
 ) {
-  return job.state === "queued" && job.error_code === "insufficient_gp"
-    ? t("GP 不足，等待中", "Waiting for GP")
-    : t(...(downloadStates[job.state] ?? [job.state, job.state]));
+  if (job.state === "queued") {
+    if (job.error_code === "insufficient_gp")
+      return t("GP 不足，等待中", "Waiting for GP");
+    if (phase && queuedPhases[phase]) return t(...queuedPhases[phase]);
+  }
+  if (job.state === "inspecting") {
+    if (phase === "submit") return t("正在准备下载", "Preparing download");
+    if (phase === "recover") return t("正在恢复下载", "Recovering download");
+  }
+  return t(...(downloadStates[job.state] ?? [job.state, job.state]));
 }
 
 /**

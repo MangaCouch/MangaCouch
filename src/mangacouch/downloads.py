@@ -501,7 +501,7 @@ class Downloads:
                 (int(time.time()) + WAITING_WITHIN,),
             ).fetchone()[0]
             rows = db.execute(
-                "SELECT id,state,input_url,received,total,retry_at,attempts,error_code,"
+                "SELECT id,state,phase,input_url,received,total,retry_at,attempts,error_code,"
                 "json_extract(details_json,'$.selected.metadata.title') AS title "
                 "FROM download_job WHERE state NOT IN ('done','cancelled') "
                 "ORDER BY CASE WHEN state IN ('downloading','importing','inspecting','submitting') "

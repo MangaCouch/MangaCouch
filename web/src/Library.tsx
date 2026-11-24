@@ -1,10 +1,17 @@
 import { RouteLink } from "./navigation";
+import { rememberHomeFilters } from "./libraryView";
 import { restoreScroll } from "./viewState";
 import type { GuardRef } from "./navigation";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { BookOpen, CloudDownload, Layers, Upload, X } from "lucide-react";
 import { Pagination } from "./Controls";
-import { aborted, ApiError, errorMessage, request } from "./api";
+import { aborted, ApiError, errorMessage, post, request } from "./api";
 import { prepareUpload } from "./upload";
 import { savedNotice } from "./ReviewDetails";
 import { toast } from "./feedback";
@@ -13,6 +20,7 @@ import {
   LibraryFilters,
   PAGE_SIZE,
   searchParameters,
+  searchOptions,
 } from "./LibraryFilters";
 import type { Browse } from "./LibraryFilters";
 import { Cover } from "./Cover";
@@ -127,6 +135,50 @@ export function Library({
       window.removeEventListener("beforeunload", warn);
     };
   }, [guard]);
+  const params = searchParameters(browse);
+  // The selection carries across pages; a new search or filter starts over.
+  const [selected, setSelected] = useState(() => ({
+    key: params,
+    value: noSelection(),
+  }));
+  const selection = selected.key === params ? selected.value : noSelection();
+  // Reset during render as well as hiding stale selections: even A -> B -> A must
+  // not revive a selection, and no action may observe it under a different query.
+  if (selected.key !== params)
+    setSelected({ key: params, value: noSelection() });
+  const setSelection = (value: ReturnType<typeof noSelection>) =>
+    setSelected({ key: params, value });
+  const reconcileSelection = useEffectEvent(
+    async (items: Book[], total: number, signal: AbortSignal) => {
+      const chosen = selection.all ? selection.excluded : selection.picked;
+      if (!selection.all && !chosen.size) return;
+      const matching = new Set(items.map((book) => book.id));
+      if (total > items.length) {
+        const offPage = [...chosen].filter((id) => !matching.has(id));
+        for (let i = 0; i < offPage.length; i += 500) {
+          const result = await post<{ matching: string[] }>(
+            "/api/books/selection-state",
+            {
+              query,
+              options: searchOptions(browse),
+              book_ids: offPage.slice(i, i + 500),
+            },
+            signal,
+          );
+          for (const id of result.matching) matching.add(id);
+        }
+      }
+      if (signal.aborted) return;
+      const kept = new Set([...chosen].filter((id) => matching.has(id)));
+      if (selection.all && kept.size >= total) setSelection(noSelection());
+      else if (kept.size !== chosen.size)
+        setSelection(
+          selection.all
+            ? { ...selection, excluded: kept }
+            : { ...selection, picked: kept },
+        );
+    },
+  );
   useEffect(() => {
     const controller = new AbortController();
     setBusy(true);
@@ -142,11 +194,14 @@ export function Library({
     }>(`/api/books?${params}&page=${page}&include_total=${known === null}`, {
       signal: controller.signal,
     })
-      .then((value) => {
+      .then(async (value) => {
+        if (controller.signal.aborted) return;
+        const count = value.total ?? known;
+        if (count !== null)
+          await reconcileSelection(value.items, count, controller.signal);
         if (controller.signal.aborted) return;
         setBooks(value.items);
         setShownQuery(`${params}&page=${page}`);
-        const count = value.total ?? known;
         if (count !== null) {
           countedKey.current = { key, total: count };
           setCounted({ params, total: count });
@@ -187,35 +242,10 @@ export function Library({
   // What is on screen belongs to the query it was loaded for: a different search, filter or
   // page that failed shows no books or count of another one; a failed refresh of the same
   // page keeps its books, marked as earlier results.
-  const params = searchParameters(browse);
   const current = shownQuery === pageQuery;
   const shownBooks = current ? books : [];
   const total = counted?.params === params ? counted.total : null;
   const stale = !!listError && current;
-  // The selection carries across pages; a new search or filter starts over.
-  const [selected, setSelected] = useState(() => ({
-    key: params,
-    value: noSelection(),
-  }));
-  const selection = selected.key === params ? selected.value : noSelection();
-  // Reset during render as well as hiding stale selections: even A -> B -> A must
-  // not revive a selection, and no action may observe it under a different query.
-  if (selected.key !== params)
-    setSelected({ key: params, value: noSelection() });
-  const setSelection = (
-    next:
-      | ReturnType<typeof noSelection>
-      | ((
-          old: ReturnType<typeof noSelection>,
-        ) => ReturnType<typeof noSelection>),
-  ) =>
-    setSelected((old) => ({
-      key: params,
-      value:
-        typeof next === "function"
-          ? next(old.key === params ? old.value : noSelection())
-          : next,
-    }));
   function changeBrowse(next: Browse) {
     setPage(1);
     scroll.current = null;
@@ -226,14 +256,6 @@ export function Library({
     t,
     navigate,
     changed: () => setRefresh((value) => value + 1),
-    // Removed books leave the selection; removing every result ends selecting.
-    removed: (ids) =>
-      setSelection((current) => {
-        if (current.all) return noSelection();
-        const picked = new Set(current.picked);
-        for (const id of ids) picked.delete(id);
-        return picked.size ? { ...current, picked } : noSelection();
-      }),
   });
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
@@ -413,7 +435,14 @@ export function Library({
           search={(value) => changeBrowse({ ...browse, query: value })}
           t={t}
         />
-        <LibraryFilters value={browse} change={changeBrowse} t={t} />
+        <LibraryFilters
+          value={browse}
+          change={(next) => {
+            rememberHomeFilters(next);
+            changeBrowse(next);
+          }}
+          t={t}
+        />
       </div>
       {!query &&
         !hasFilters(browse) &&

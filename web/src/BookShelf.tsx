@@ -243,6 +243,7 @@ export function BookShelf({
   useEffect(() => {
     const keyboard = (event: KeyboardEvent) => {
       if (
+        busy ||
         event.defaultPrevented ||
         document.querySelector("dialog[open],[role=dialog],[role=menu]")
       )
@@ -274,6 +275,7 @@ export function BookShelf({
   });
   return (
     <section
+      inert={busy}
       className={`shelf ${mode ? "selection-mode" : ""}`}
       aria-label={t("书架", "Bookshelf")}
     >

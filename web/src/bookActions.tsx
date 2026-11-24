@@ -128,14 +128,11 @@ export function useBookActions({
   t,
   navigate,
   changed,
-  removed,
 }: {
   t: Translate;
   navigate: (route: string) => void;
   /** Books changed: reload what is shown. */
   changed: () => void;
-  /** These books were moved to the recycle bin. */
-  removed?: (ids: string[]) => void;
 }) {
   const [collecting, setCollecting] = useState<BookTargets | null>(null);
   const [removing, setRemoving] = useState<string[] | null>(null);
@@ -456,9 +453,8 @@ export function useBookActions({
           bookIds={removing}
           t={t}
           close={() => setRemoving(null)}
-          removed={(ids) => {
+          removed={() => {
             setRemoving(null);
-            removed?.(ids);
             changed();
           }}
         />

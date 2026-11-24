@@ -415,13 +415,14 @@
         target.searchParams.set(key, String(value));
       const response = await window.fetch(target.href);
       const { items } = await response.json();
+      const matching = items.filter(
+        (book) =>
+          !(body.exclude ?? []).includes(book.id) &&
+          (!body.book_ids || body.book_ids.includes(book.id)),
+      );
       return json({
-        unfinished: items.some(
-          (book) =>
-            !(body.exclude ?? []).includes(book.id) &&
-            (!body.book_ids || body.book_ids.includes(book.id)) &&
-            !book.personal.completed,
-        ),
+        matching: body.book_ids ? matching.map((book) => book.id) : undefined,
+        unfinished: matching.some((book) => !book.personal.completed),
       });
     }
     if (url.pathname === "/api/thumbnails/refresh") {
@@ -510,6 +511,7 @@
             .map((job) => ({
               id: job.id,
               state: job.state,
+              phase: job.details?.phase,
               input_url: job.input_url,
               received: job.received,
               total: job.total,

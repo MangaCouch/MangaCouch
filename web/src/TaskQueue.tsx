@@ -18,6 +18,7 @@ import type { Translate } from "./types";
 type Job = {
   id: string;
   state: string;
+  phase?: string;
   input_url: string;
   received: number;
   total: number | null;
@@ -202,7 +203,9 @@ export function TaskQueue({
                   navigate={go}
                 >
                   <strong>{job.title || job.input_url}</strong>
-                  <small>{retryNotice(job, t) ?? downloadLabel(job, t)}</small>
+                  <small>
+                    {retryNotice(job, t) ?? downloadLabel(job, t, job.phase)}
+                  </small>
                   {job.total !== null && job.state === "downloading" && (
                     <progress value={job.received} max={job.total} />
                   )}

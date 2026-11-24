@@ -417,6 +417,42 @@ test("selecting every result then excluding the only unfinished book offers mark
   await x.wait(() => x.text().includes("Mark as unread"));
   assert.doesNotMatch(x.text(), /Mark as read\b/);
 });
+test("refreshing a paged rating filter drops only off-page picks that stopped matching", async (t) => {
+  let books;
+  const x = await setup(t, false, (fixture) => {
+    books = fixture.books;
+    for (const book of books) book.personal.rating = 4;
+  });
+  await x.click("Rated");
+  await x.wait(
+    () => x.last().get("rating") === "rated" && x.cards().length === 24,
+  );
+  const [first, second] = all(x.view.container, ".shelf-item");
+  const firstId = first.dataset.bookId,
+    secondId = second.dataset.bookId;
+  await click(one(first, ".book-select"));
+  await click(one(second, ".book-select"));
+  await x.click("Next page");
+  await x.wait(() => x.cards().length === 11);
+  assert.match(x.text(), /2 selected/);
+  books.find((book) => book.id === firstId).personal.rating = null;
+  await act(async () =>
+    dispatch(x.cards()[0], "contextMenu", { clientX: 20, clientY: 20 }),
+  );
+  await x.wait(() => !!x.button("Refresh thumbnails"));
+  await x.click("Refresh thumbnails");
+  await x.wait(() => x.cards().length === 10);
+  assert.match(x.text(), /1 selected/);
+  await x.click("Previous page");
+  await x.wait(() => x.cards().length === 24);
+  assert.deepEqual(
+    all(x.view.container, ".shelf-item.selected").map(
+      (item) => item.dataset.bookId,
+    ),
+    [secondId],
+  );
+});
+
 test("removing the selected book ends selecting instead of keeping it chosen", async (t) => {
   const x = await setup(t);
   const card = () => one(x.view.container, '[data-book-id="fixture-0"]');

@@ -1,4 +1,4 @@
-import { storageKey } from "./device";
+import { preference, remember, storageKey } from "./device";
 import { initialBrowse } from "./LibraryFilters";
 import type { Browse } from "./LibraryFilters";
 import type { LibraryScroll } from "./Library";
@@ -54,7 +54,14 @@ function filtersFrom(stored: Record<string, unknown>, base: Browse): Browse {
   };
 }
 
-/** Filters belong to this URL; scroll belongs to this history entry. */
+/** Save only choices from the filter panel. Fresh visits get a new random seed. */
+export function rememberHomeFilters(browse: Browse) {
+  const params = new URLSearchParams(librarySearch({ ...browse, query: "" }));
+  params.delete("seed");
+  remember("home-filters", params.toString());
+}
+
+/** Explicit links and history entries retain their own view. */
 export function restoreLibraryView(
   search = location.search,
   state = history.state,
@@ -66,7 +73,14 @@ export function restoreLibraryView(
   const scroll = state?.mcScroll;
   return {
     browse: {
-      ...filtersFrom(stored, base),
+      ...filtersFrom(
+        !search && !state?.mcLibrary
+          ? Object.fromEntries(
+              new URLSearchParams(preference("home-filters", "")),
+            )
+          : stored,
+        base,
+      ),
       query: stored.query && stored.query.length <= 1024 ? stored.query : "",
       seed:
         stored.seed && /^[0-9a-f]{32}$/.test(stored.seed)
@@ -103,7 +117,7 @@ export function librarySearch(browse: Browse, page = 1): string {
 /** Update the current library entry without sharing filters across tabs. */
 export function rememberLibraryView(view: LibraryView) {
   history.replaceState(
-    { ...history.state, mcScroll: view.scroll },
+    { ...history.state, mcLibrary: true, mcScroll: view.scroll },
     "",
     location.pathname + librarySearch(view.browse, view.page) + location.hash,
   );

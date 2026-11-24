@@ -107,6 +107,40 @@ test("several pasted links are submitted in one batch with per-line results", as
   assert.equal(x.fixture.downloads.length, 2);
   assert.equal(all(x.view.container, { className: "download-row" }).length, 2);
 });
+test("the queue identifies metadata, confirmation, approved work and GP waits", async (t) => {
+  const x = await setup(t, (f) => {
+    for (const phase of ["inspect", "submit", "transfer", "recover", "import"])
+      f.downloads.push(job(phase, { details: { phase } }));
+    f.downloads.push(
+      job("approved", { state: "inspecting", details: { phase: "submit" } }),
+      job("recovering", { state: "inspecting", details: { phase: "recover" } }),
+      job("approve", { state: "needs_approval" }),
+      job("gp", {
+        details: { phase: "submit" },
+        error_code: "insufficient_gp",
+      }),
+    );
+  });
+  for (const [id, label] of Object.entries({
+    inspect: "Waiting for metadata",
+    approve: "Confirm download",
+    approved: "Preparing download",
+    recovering: "Recovering download",
+    submit: "Queued for download",
+    transfer: "Queued for download",
+    recover: "Waiting to recover download",
+    import: "Queued for import",
+    gp: "Waiting for GP",
+  }))
+    assert.equal(
+      one(x.view.container, `#download-${id} .tags`).textContent.includes(
+        label,
+      ),
+      true,
+      id,
+    );
+});
+
 test("automatic retries and source cooldowns are explained in the queue and the task popover", async (t) => {
   const later = Math.floor(Date.now() / 1000) + 600;
   const prepare = (f) => {

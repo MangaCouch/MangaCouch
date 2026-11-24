@@ -157,19 +157,20 @@ def library_router(services: Services) -> APIRouter:
     @router.post("/api/books/selection-state")
     def selection_state(data: SelectionStateInput) -> dict:
         conditions, values = rule_conditions(data.query, data.options)
-        if data.book_ids is not None:
-            conditions.append("b.id IN (SELECT value FROM json_each(?))")
-            values.append(canonical_json(data.book_ids))
-        conditions += [
-            "b.id NOT IN (SELECT value FROM json_each(?))",
-            "json_extract(p.state_json,'$.completed')=0",
-        ]
+        conditions.append("b.id NOT IN (SELECT value FROM json_each(?))")
         values.append(canonical_json(data.exclude))
+        source = " FROM book b JOIN personal p ON p.book_id=b.id WHERE " + " AND ".join(conditions)
         with library.connection() as db:
+            if data.book_ids is not None:
+                rows = db.execute(
+                    "SELECT b.id,json_extract(p.state_json,'$.completed')"
+                    + source
+                    + " AND b.id IN (SELECT value FROM json_each(?))",
+                    (*values, canonical_json(data.book_ids)),
+                ).fetchall()
+                return {"matching": [row[0] for row in rows], "unfinished": any(not row[1] for row in rows)}
             unfinished = db.execute(
-                "SELECT EXISTS(SELECT 1 FROM book b JOIN personal p ON p.book_id=b.id WHERE "
-                + " AND ".join(conditions)
-                + ")",
+                "SELECT EXISTS(SELECT 1" + source + " AND json_extract(p.state_json,'$.completed')=0)",
                 values,
             ).fetchone()[0]
         return {"unfinished": bool(unfinished)}

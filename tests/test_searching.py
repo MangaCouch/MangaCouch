@@ -586,6 +586,12 @@ def test_selection_reading_state_honours_filters_and_exclusions(api, files):
     assert not unfinished([ids[3]], {"rating": "rated", "min_rating": 4.5})
     assert unfinished(["missing"], {"reading": "unread"})
     assert not unfinished(query="no-such-title")
+    matching = api.post(
+        "/api/books/selection-state",
+        json={"book_ids": [*ids, "missing"], "options": {"reading": "completed"}, "exclude": [ids[2]]},
+        headers=CSRF,
+    )
+    assert matching.json() == {"matching": [ids[4]], "unfinished": False}
     invalid = api.post("/api/books/selection-state", json={"exclude": ["x"] * 501}, headers=CSRF)
     assert invalid.status_code == 422
 
